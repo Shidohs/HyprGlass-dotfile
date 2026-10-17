@@ -50,28 +50,47 @@ impl LauncherUi {
         let css_provider = setup_css(&theme_manager);
 
         // 3. Create Layer Shell Window
-        let (mon_w, mon_h) = if let Some(display) = gdk4::Display::default() {
+        let target_monitor_name = std::env::var("GLASS_LAUNCHER_MONITOR").ok();
+        let mut chosen_monitor: Option<gdk4::Monitor> = None;
+        let mut chosen_geom = (1366, 768);
+
+        if let Some(display) = gdk4::Display::default() {
             let monitors = display.monitors();
-            if let Some(first) = monitors.item(0).and_then(|m| m.downcast::<gdk4::Monitor>().ok()) {
-                let geom = first.geometry();
-                (geom.width(), geom.height())
-            } else {
-                (1366, 768)
+            for i in 0..monitors.n_items() {
+                if let Some(mon) = monitors.item(i).and_then(|m| m.downcast::<gdk4::Monitor>().ok()) {
+                    let matches = match (&target_monitor_name, mon.connector()) {
+                        (Some(target), Some(conn)) => conn.as_str() == target,
+                        _ => false,
+                    };
+                    if matches {
+                        let geom = mon.geometry();
+                        chosen_geom = (geom.width(), geom.height());
+                        chosen_monitor = Some(mon);
+                        break;
+                    }
+                }
             }
-        } else {
-            (1366, 768)
-        };
+            if chosen_monitor.is_none() {
+                if let Some(first) = monitors.item(0).and_then(|m| m.downcast::<gdk4::Monitor>().ok()) {
+                    let geom = first.geometry();
+                    chosen_geom = (geom.width(), geom.height());
+                }
+            }
+        }
 
         let window = gtk::ApplicationWindow::new(app);
         window.init_layer_shell();
         window.set_layer(Layer::Overlay);
+        if let Some(ref mon) = chosen_monitor {
+            window.set_monitor(Some(mon));
+        }
         window.set_keyboard_mode(if is_daemon {
             KeyboardMode::None
         } else {
             KeyboardMode::Exclusive
         });
-        window.set_namespace(Some("rofi")); // Hyprland blurs the "rofi" namespace automatically!
-        window.set_default_size(mon_w, mon_h);
+        window.set_namespace(Some("glass-launcher"));
+        window.set_default_size(chosen_geom.0, chosen_geom.1);
 
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Bottom, true);
@@ -206,7 +225,10 @@ impl LauncherUi {
 
         let mut state = self.state.borrow_mut();
         state.is_open = true;
-        state.entry.set_text("");
+        let had_query = !state.entry.text().is_empty();
+        if had_query {
+            state.entry.set_text("");
+        }
         state.window.set_keyboard_mode(KeyboardMode::Exclusive);
         state.window.set_visible(true);
         state.window.present();
@@ -214,7 +236,11 @@ impl LauncherUi {
         drop(state);
 
         self.check_and_reload_apps();
-        self.update_search("");
+        if had_query {
+            self.update_search("");
+        } else {
+            self.update_selection(0);
+        }
     }
 
     pub fn hide(&self) {
@@ -288,11 +314,22 @@ impl LauncherUi {
             let text = e.text();
             self_clone.update_search(&text);
         });
+
+        let self_activate = self.clone();
+        entry.connect_activate(move |_| {
+            self_activate.launch_selected();
+        });
     }
 
     fn update_search(&self, query: &str) {
         let mut state = self.state.borrow_mut();
         let matched = state.search_engine.filter_indices(&state.apps, query);
+        if matched == state.filtered_indices && state.flow_box.first_child().is_some() {
+            state.selected_index = 0;
+            drop(state);
+            self.update_selection(0);
+            return;
+        }
         state.filtered_indices = matched;
         state.selected_index = 0;
         drop(state);
@@ -368,6 +405,7 @@ impl LauncherUi {
 
     fn setup_key_handler(&self) {
         let key_controller = gtk::EventControllerKey::new();
+        key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
         let self_clone = self.clone();
 
         key_controller.connect_key_pressed(move |_, keyval, _keycode, _state| {
@@ -424,10 +462,14 @@ impl LauncherUi {
     }
 
     fn launch_selected(&self) {
-        let state = self.state.borrow();
+        let mut state = self.state.borrow_mut();
+        if !state.is_open {
+            return;
+        }
         if let Some(&app_idx) = state.filtered_indices.get(state.selected_index) {
             let app = &state.apps[app_idx];
             let _ = apps::launch_app(app);
+            state.is_open = false;
             drop(state);
             self.hide();
         }

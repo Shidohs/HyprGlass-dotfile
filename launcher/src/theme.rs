@@ -187,7 +187,8 @@ impl ThemeManager {
 
     pub fn generate_css(&self) -> String {
         let p = &self.current_palette;
-        let bg_glass = hex_to_rgba(&p.background, p.opacity);
+        let glass_opacity = (p.opacity * 0.60).clamp(0.40, 0.60);
+        let bg_glass = hex_to_rgba(&p.background, glass_opacity);
         let accent_border = hex_to_rgba(&p.accent, 0.40);
         let selected_bg = hex_to_rgba(&p.accent, 0.45);
         let hover_bg = hex_to_rgba(&p.text, 0.08);
@@ -199,12 +200,11 @@ impl ThemeManager {
  * ========================================================== */
 
 window, window.launcher-window {{
-    background-color: transparent;
-    background: transparent;
+    background-color: {bg_glass};
 }}
 
 .main-wrapper {{
-    background-color: {bg_glass};
+    background-color: transparent;
     padding: 56px 32px 16px 32px;
 }}
 

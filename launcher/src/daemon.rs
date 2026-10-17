@@ -10,6 +10,33 @@ pub fn get_socket_path() -> PathBuf {
     }
 }
 
+pub fn get_lock_path() -> PathBuf {
+    if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
+        PathBuf::from(runtime_dir).join("glass-launcher.lock")
+    } else {
+        PathBuf::from(format!("/tmp/glass-launcher-{}.lock", unsafe { libc::getuid() }))
+    }
+}
+
+pub fn try_acquire_lock() -> Option<std::fs::File> {
+    let lock_path = get_lock_path();
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .ok()?;
+
+    use std::os::unix::io::AsRawFd;
+    let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if ret == 0 {
+        Some(file)
+    } else {
+        None
+    }
+}
+
 pub fn send_command(cmd: &str) -> std::io::Result<String> {
     let sock_path = get_socket_path();
     let mut stream = UnixStream::connect(sock_path)?;

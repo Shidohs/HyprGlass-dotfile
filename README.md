@@ -68,7 +68,7 @@ Al presionar el atajo o lanzarlo desde la terminal:
 
 ## ⌨️ Atajos de Teclado Principales
 
-Los atajos están definidos en `~/.config/hypr/config/70-keybinds.conf`.
+Los atajos están definidos en `~/.config/hypr/lua/70-keybinds.lua`.
 
 | Atajo               | Acción                            |
 | ------------------- | --------------------------------- |

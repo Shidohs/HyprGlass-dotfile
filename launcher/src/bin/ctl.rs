@@ -33,7 +33,7 @@ fn main() {
         return;
     }
 
-    // If daemon is not running and command is toggle/show: launch daemon in background and toggle
+    // If daemon is not running and command is toggle/show: launch daemon in background with --show
     if command == "toggle" || command == "show" {
         unsafe {
             let _ = Command::new("launcher")
@@ -44,13 +44,6 @@ fn main() {
                     Ok(())
                 })
                 .spawn();
-        }
-        // Wait up to 1.5s for daemon socket to bind and respond
-        for _ in 0..30 {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            if send_command(command).is_ok() {
-                return;
-            }
         }
     }
 }

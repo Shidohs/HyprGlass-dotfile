@@ -31,15 +31,14 @@ pub fn get_user_css_path() -> Option<PathBuf> {
 #[allow(dead_code)]
 pub fn default_css() -> &'static str {
     r#"
-/* Window transparent root */
+/* Window glass background */
 window, window.launcher-window {
-    background-color: transparent;
-    background: transparent;
+    background-color: rgba(3, 3, 21, 0.55);
 }
 
-/* Glass overlay covering the screen */
+/* Main container covering the screen */
 .main-wrapper {
-    background-color: rgba(3, 3, 21, 0.78);
+    background-color: transparent;
     padding: 56px 32px 16px 32px;
 }
 
