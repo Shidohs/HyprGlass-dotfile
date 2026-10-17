@@ -70,8 +70,13 @@ fn main() -> glib::ExitCode {
         }
     };
 
+    let as_window = std::env::var("GLASS_LAUNCHER_WINDOW").map(|v| v == "1").unwrap_or(false)
+        || args.iter().any(|a| a == "--window" || a == "-w");
+
     // 3. Initialize GTK4 Application
-    let app_id = if is_daemon {
+    let app_id = if as_window {
+        "org.antigravity.glass_launcher"
+    } else if is_daemon {
         "org.antigravity.glass_launcher.daemon"
     } else if allow_standalone {
         "org.antigravity.glass_launcher.standalone.isolated"

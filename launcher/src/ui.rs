@@ -29,6 +29,7 @@ pub struct LauncherState {
     pub _hold_guard: gio::ApplicationHoldGuard,
     pub is_daemon: bool,
     pub is_open: bool,
+    pub as_window: bool,
 }
 
 pub struct LauncherUi {
@@ -78,25 +79,34 @@ impl LauncherUi {
             }
         }
 
-        let window = gtk::ApplicationWindow::new(app);
-        window.init_layer_shell();
-        window.set_layer(Layer::Overlay);
-        if let Some(ref mon) = chosen_monitor {
-            window.set_monitor(Some(mon));
-        }
-        window.set_keyboard_mode(if is_daemon {
-            KeyboardMode::None
-        } else {
-            KeyboardMode::Exclusive
-        });
-        window.set_namespace(Some("glass-launcher"));
-        window.set_default_size(chosen_geom.0, chosen_geom.1);
+        let as_window = std::env::var("GLASS_LAUNCHER_WINDOW").map(|v| v == "1").unwrap_or(false)
+            || std::env::args().any(|a| a == "--window" || a == "-w");
 
-        window.set_anchor(Edge::Top, true);
-        window.set_anchor(Edge::Bottom, true);
-        window.set_anchor(Edge::Left, true);
-        window.set_anchor(Edge::Right, true);
-        window.set_exclusive_zone(-1);
+        let window = gtk::ApplicationWindow::new(app);
+        if !as_window {
+            window.init_layer_shell();
+            window.set_layer(Layer::Overlay);
+            if let Some(ref mon) = chosen_monitor {
+                window.set_monitor(Some(mon));
+            }
+            window.set_keyboard_mode(if is_daemon {
+                KeyboardMode::None
+            } else {
+                KeyboardMode::Exclusive
+            });
+            window.set_namespace(Some("glass-launcher"));
+            window.set_default_size(chosen_geom.0, chosen_geom.1);
+
+            window.set_anchor(Edge::Top, true);
+            window.set_anchor(Edge::Bottom, true);
+            window.set_anchor(Edge::Left, true);
+            window.set_anchor(Edge::Right, true);
+            window.set_exclusive_zone(-1);
+        } else {
+            window.set_title(Some("glass-launcher"));
+            window.set_decorated(false);
+            window.set_default_size(chosen_geom.0, chosen_geom.1);
+        }
         window.set_visible(!is_daemon);
         window.add_css_class("launcher-window");
 
@@ -179,6 +189,7 @@ impl LauncherUi {
             _hold_guard: app.hold(),
             is_daemon,
             is_open: !is_daemon,
+            as_window,
         }));
 
         let ui = Self { state };
@@ -229,7 +240,9 @@ impl LauncherUi {
         if had_query {
             state.entry.set_text("");
         }
-        state.window.set_keyboard_mode(KeyboardMode::Exclusive);
+        if !state.as_window {
+            state.window.set_keyboard_mode(KeyboardMode::Exclusive);
+        }
         state.window.set_visible(true);
         state.window.present();
         state.entry.grab_focus();
@@ -246,7 +259,9 @@ impl LauncherUi {
     pub fn hide(&self) {
         let mut state = self.state.borrow_mut();
         state.is_open = false;
-        state.window.set_keyboard_mode(KeyboardMode::None);
+        if !state.as_window {
+            state.window.set_keyboard_mode(KeyboardMode::None);
+        }
         if state.is_daemon {
             state.window.set_visible(false);
         } else if let Some(app) = state.window.application() {

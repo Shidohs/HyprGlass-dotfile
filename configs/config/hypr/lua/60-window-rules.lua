@@ -5,6 +5,12 @@
 -- ── Special windows ───────────────────────────────────────────────────────────
 
 hl.window_rule({
+    match   = { class = "org%.antigravity%.glass_launcher|glass%-launcher" },
+    float   = true,
+    fullscreen = true,
+})
+
+hl.window_rule({
     match   = { class = "Eww", title = "eww.*" },
     float   = true,
     no_focus = true,
