@@ -55,8 +55,8 @@ Singleton {
 
     // Optional external scripts (warnings only)
     readonly property var optionalScripts: [
-        "../../../hypr/scripts/AleatoryWall.sh",
-        "../../../hypr/scripts/theme-unifier.sh"
+        "hypr/scripts/tools/AleatoryWall.sh",
+        "hypr/scripts/system/theme-unifier.sh"
     ]
 
     property var missingCritical: []

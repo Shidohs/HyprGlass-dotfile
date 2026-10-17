@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
+import Quickshell.Wayland
 import qs.config
 import qs.services
 import qs.components
@@ -13,6 +14,7 @@ QsPopupWindow {
     anchorSide: "left"
     moduleName: "SystemMonitor"
     contentImplicitHeight: content.implicitHeight
+    keyboardFocus: WlrKeyboardFocus.None // Evita el problema del doble click al cerrar
 
     readonly property bool hasGpu: SystemMonitorService.gpuType !== "unknown"
 

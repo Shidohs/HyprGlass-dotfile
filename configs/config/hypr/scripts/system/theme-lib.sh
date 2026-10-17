@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
+# HyprGlass - Theme Library Helpers
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
+
+if [[ -f "$LIB_DIR/logging.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$LIB_DIR/logging.sh"
+fi
 
 THEME_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hypr"
 THEME_STATE_FILE="$THEME_STATE_DIR/theme.conf"
-HYPR_THEME_ENV_CONF="$HOME/.config/hypr/config/10-theme-unifier-env.conf"
+HYPR_THEME_ENV_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/config/10-theme-unifier-env.conf"
 
 THEME_DEFAULT_GTK="Sweet"
 THEME_DEFAULT_ICONS="BeautyLine"
@@ -11,7 +21,6 @@ THEME_DEFAULT_CURSOR_SIZE="24"
 
 ensure_theme_state() {
     mkdir -p "$THEME_STATE_DIR"
-
     if [[ ! -f "$THEME_STATE_FILE" ]]; then
         save_theme_state \
             "$THEME_DEFAULT_GTK" \
@@ -23,7 +32,6 @@ ensure_theme_state() {
 
 load_theme_state() {
     ensure_theme_state
-
     GTK_THEME=""
     ICON_THEME=""
     CURSOR_THEME=""
@@ -57,7 +65,7 @@ get_installed_themes() {
     local -a theme_dirs=(
         "/usr/share/themes"
         "$HOME/.themes"
-        "$HOME/.local/share/themes"
+        "${XDG_DATA_HOME:-$HOME/.local/share}/themes"
     )
     local -a installed=()
     local dir
@@ -80,7 +88,7 @@ get_installed_icons() {
     local -a icon_dirs=(
         "/usr/share/icons"
         "$HOME/.icons"
-        "$HOME/.local/share/icons"
+        "${XDG_DATA_HOME:-$HOME/.local/share}/icons"
     )
     local -a installed=()
     local dir
@@ -102,7 +110,7 @@ get_installed_cursors() {
     local -a icon_dirs=(
         "/usr/share/icons"
         "$HOME/.icons"
-        "$HOME/.local/share/icons"
+        "${XDG_DATA_HOME:-$HOME/.local/share}/icons"
     )
     local -a installed=()
     local dir

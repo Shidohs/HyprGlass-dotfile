@@ -91,7 +91,7 @@ Rectangle {
         cursorShape: Qt.PointingHandCursor
 
         onClicked: {
-            pulseAnimation.start()
+            pulseAnimation.restart()
             root.clicked()
         }
 

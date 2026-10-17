@@ -1,0 +1,16 @@
+---
+- name: Ensure python-pywal and matugen are available
+  become: true
+  pacman:
+    name:
+      - python-pywal
+      - matugen
+    state: present
+  ignore_errors: true
+
+- name: Force a first generation of Matugen theme from a sample wallpaper
+  shell: |
+    if [ -d "$HOME/Wallpapers" ] && [ "$(ls -A $HOME/Wallpapers | head -n 1)" ]; then
+        matugen image "$HOME/Wallpapers/$(ls -A $HOME/Wallpapers | head -n 1)"
+    fi
+  ignore_errors: true

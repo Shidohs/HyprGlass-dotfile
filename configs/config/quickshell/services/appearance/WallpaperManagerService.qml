@@ -10,15 +10,10 @@ import qs.services
 // WallpaperManagerService — Puente entre Quickshell y AleatoryWall.sh
 //
 // Responsabilidades:
-//   · apply(path)  → AleatoryWall.sh --file <path>  (swww + lock sync + pywal + state.json)
-//   · next()       → AleatoryWall.sh --once          (avanza la queue anti-repetición)
+//   · apply(path)  → AleatoryWall.sh --file <path>
+//   · next()       → AleatoryWall.sh --once
 //   · Sincroniza currentWallpaper leyendo .current-wallpaper (escrito por el script)
 //   · pywalEnabled se persiste en state.json como "wallpaper.pywal"
-//
-// Reglas de diseño:
-//   · NUNCA llama a swww directamente — eso es responsabilidad del script bash.
-//   · NUNCA escribe .current-wallpaper directamente — lo hace el script.
-//   · El daemon de AleatoryWall no se toca: sigue con su ciclo de 60 min.
 // ============================================================================
 
 Singleton {
@@ -31,7 +26,9 @@ Singleton {
     // ========================================================================
 
     readonly property string scriptPath: Quickshell.env("HOME") + "/.config/hypr/scripts/tools/AleatoryWall.sh"
-    readonly property string currentWallFile: Quickshell.env("HOME") + "/.config/hypr/logs/.current-wallpaper"
+    readonly property string currentWallFile: Quickshell.env("XDG_STATE_HOME")
+        ? (Quickshell.env("XDG_STATE_HOME") + "/hypr/wallpaper/current-wallpaper")
+        : (Quickshell.env("HOME") + "/.local/state/hypr/wallpaper/current-wallpaper")
     property string currentWallWatchPath: ""
 
     // ========================================================================
@@ -70,7 +67,7 @@ Singleton {
         }
     }
 
-    // Observar .current-wallpaper: si AleatoryWall lo cambia (ciclo horario),
+    // Observar .current-wallpaper para sincronizar cambios hechos por el script.
     // Quickshell se entera automáticamente sin polling.
     FileView {
         id: _wallWatcher
@@ -80,11 +77,11 @@ Singleton {
     }
 
     // Check daemon logic has been removed since AleatoryWall is no longer a daemon
-    
+
     // ========================================================================
     // AUTO ROTATION
     // ========================================================================
-    
+
     property bool autoRotate: StateService.get("wallpaper.autoRotate", true)
     property int autoRotateInterval: StateService.get("wallpaper.autoRotateInterval", 3600000) // 1 Hour
 
@@ -104,8 +101,6 @@ Singleton {
     // ========================================================================
 
     // Aplica un wallpaper concreto delegando en AleatoryWall.sh.
-    // AleatoryWall se encarga de: swww, .lock-wallpaper, .current-wallpaper,
-    // state.json y pywal (si está habilitado).
     function apply(path) {
         if (busy) {
             console.warn("[WallpaperManager] apply() ignorado: operación en curso");

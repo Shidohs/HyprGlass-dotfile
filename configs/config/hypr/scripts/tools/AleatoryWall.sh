@@ -1,12 +1,23 @@
-#!/bin/bash
-
-# AleatoryWall.sh - Wallpaper changer with debugging
-# Enhanced version with better error handling and logging
+#!/usr/bin/env bash
+# AleatoryWall.sh - HyprGlass Wallpaper Engine with Matugen/Wallust Color Syncing
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
+
+if [[ -f "$LIB_DIR/logging.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$LIB_DIR/logging.sh"
+else
+    log_info() { echo "[INFO] $1"; }
+    log_warn() { echo "[WARN] $1"; }
+    log_error() { echo "[ERROR] $1"; }
+    log_debug() { echo "[DEBUG] $1"; }
+fi
+
 # Configuration
-Script_Wall=$(basename "$0")
+Script_Wall="$(basename "$0")"
 STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/hypr/wallpaper"
 LOG_FILE="$STATE_ROOT/aleatory-wall.log"
 QUEUE_FILE="$STATE_ROOT/queue"
@@ -16,75 +27,42 @@ LOCK_WALLPAPER_LINK="$STATE_ROOT/lock-wallpaper"
 LOCK_WALLPAPER_STILL="$STATE_ROOT/lock-wallpaper.png"
 BACKEND=${BACKEND:-swww} # swww | mpvpaper
 OUTPUT=${OUTPUT:-all}    # all | eDP-1 | DP-1 ...
-# mpv defaults tuned for a wallpaper use-case (lower CPU/RAM while keeping smooth playback).
-# You can override with: --mpv-options "..." or env vars MPV_OPTS/MPV_IMAGE_OPTS.
-MPV_OPTS=${MPV_OPTS:-"no-audio --loop-file=inf --hwdec=auto-safe --cache=no --demuxer-max-bytes=20M --demuxer-max-back-bytes=10M --scale=bilinear --cscale=bilinear --dscale=bilinear"}
-# For static images, keep mpv open and do NOT loop (looping can cause flicker).
+
+MPV_OPTS=${MPV_OPTS:-"no-audio loop --hwdec=auto-safe --cache=no --scale=bilinear --input-terminal=no"}
 MPV_IMAGE_OPTS=${MPV_IMAGE_OPTS:-"no-audio --keep-open=yes --image-display-duration=inf --loop-file=no --hwdec=auto-safe --cache=no --demuxer-max-bytes=5M --demuxer-max-back-bytes=2M"}
 MPV_FILL_MODE=${MPV_FILL_MODE:-cover} # cover | fit | stretch
 MPVPAPER_AUTO_PAUSE=${MPVPAPER_AUTO_PAUSE:-true}
 MPVPAPER_AUTO_STOP=${MPVPAPER_AUTO_STOP:-true}
 DEBUG=${DEBUG:-false}
-USE_PYWAL=false
+USE_THEME_ENGINE=true
 
-# Wallpaper directories (in order of preference)
+# Default wallpaper directories
+WALL_DIRS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/wallpaper-dirs.conf"
 WALL_DIRS=(
     "$HOME/Wallpapers"
+    "$HOME/Imágenes/Wallpapers"
     "$HOME/Pictures/Wallpapers"
-    "$HOME/.local/share/wallpapers"
+    "${XDG_DATA_HOME:-$HOME/.local/share}/wallpapers"
 )
+if [[ -f "$WALL_DIRS_CONF" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        eval line="$line"
+        [[ -d "$line" ]] && WALL_DIRS+=("$line")
+    done < "$WALL_DIRS_CONF"
+fi
 
-# Supported formats by backend
-# swww: images + animated gif
 SWWW_FORMATS=("*.png" "*.jpg" "*.jpeg" "*.webp" "*.gif" "*.bmp" "*.tiff")
-# mpvpaper/mpv: images + common video formats
 MPVPAPER_FORMATS=("*.png" "*.jpg" "*.jpeg" "*.webp" "*.gif" "*.bmp" "*.tiff" "*.webm" "*.mp4" "*.mkv" "*.mov")
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Logging functions
-log() {
-    local message="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
-    echo -e "${BLUE}[AleatoryWall]${NC} $1" >&2
-    echo "$message" >> "$LOG_FILE" 2>/dev/null || true
-}
-
-debug() {
-    if [[ "$DEBUG" == "true" ]]; then
-        local message="[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1"
-        echo -e "${YELLOW}[DEBUG]${NC} $1" >&2
-        echo "$message" >> "$LOG_FILE" 2>/dev/null || true
-    fi
-}
-
-error() {
-    local message="[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1"
-    echo -e "${RED}[ERROR]${NC} $1" >&2
-    echo "$message" >> "$LOG_FILE" 2>/dev/null || true
-}
-
-success() {
-    local message="[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $1"
-    echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
-    echo "$message" >> "$LOG_FILE" 2>/dev/null || true
-}
-
-# Create state directory if it doesn't exist
 mkdir -p "$STATE_ROOT" 2>/dev/null || true
 
 ensure_queue() {
-    # Creates (or recreates) a shuffled queue of wallpapers.
-    # The queue prevents repeats until a full cycle is completed.
     if [[ ! -f "$QUEUE_FILE" ]] || [[ ! -s "$QUEUE_FILE" ]]; then
-        debug "(Re)building wallpaper queue"
+        log_debug "(Re)building wallpaper queue"
         printf '%s\n' "${WALL[@]}" | shuf > "$QUEUE_FILE" || true
 
-        # Avoid immediate repeat of current wallpaper when starting a new cycle.
         if [[ -f "$CURRENT_WALLPAPER_FILE" ]]; then
             local current
             current=$(cat "$CURRENT_WALLPAPER_FILE" 2>/dev/null || true)
@@ -92,7 +70,6 @@ ensure_queue() {
                 local first
                 first=$(head -n 1 "$QUEUE_FILE" 2>/dev/null || true)
                 if [[ "$first" == "$current" ]] && [[ $(wc -l < "$QUEUE_FILE") -gt 1 ]]; then
-                    debug "Rotating queue to avoid immediate repeat"
                     tail -n +2 "$QUEUE_FILE" > "$QUEUE_FILE.tmp" && echo "$first" >> "$QUEUE_FILE.tmp" && mv "$QUEUE_FILE.tmp" "$QUEUE_FILE"
                 fi
             fi
@@ -113,7 +90,6 @@ get_next_wallpaper() {
     next=$(head -n 1 "$QUEUE_FILE" 2>/dev/null || true)
 
     if [[ -z "$next" ]]; then
-        # Queue unexpectedly empty; rebuild once.
         : > "$QUEUE_FILE" || true
         ensure_queue
         next=$(head -n 1 "$QUEUE_FILE" 2>/dev/null || true)
@@ -127,7 +103,6 @@ get_next_wallpaper() {
         return 1
     fi
 
-    # Pop the first entry from the queue.
     tail -n +2 "$QUEUE_FILE" > "$QUEUE_FILE.tmp" 2>/dev/null || true
     mv "$QUEUE_FILE.tmp" "$QUEUE_FILE" 2>/dev/null || true
 
@@ -139,176 +114,49 @@ get_next_wallpaper() {
     echo "$next"
 }
 
-kill_previous_instances() {
-    debug "Checking for previous instances of $Script_Wall"
-    local pids=$(pgrep -f "$Script_Wall" 2>/dev/null || true)
-
-    for pid in $pids; do
-        if [[ "$pid" != "$$" ]]; then
-            debug "Killing previous instance with PID: $pid"
-            kill -TERM "$pid" 2>/dev/null || true
-            sleep 1
-            if kill -0 "$pid" 2>/dev/null; then
-                kill -KILL "$pid" 2>/dev/null || true
-            fi
-        fi
-    done
-}
-
 load_wallpapers() {
-    debug "Searching for image files in $WALL_DIR"
     local -a formats
-    if [[ "$BACKEND" == "mpvpaper" ]]; then
+    if [[ "$BACKEND" == "mpvpaper" ]] || command -v mpvpaper >/dev/null 2>&1; then
         formats=("${MPVPAPER_FORMATS[@]}")
     else
         formats=("${SWWW_FORMATS[@]}")
     fi
+
+    local -a valid_dirs=()
+    for dir in "${WALL_DIRS[@]}"; do
+        [[ -d "$dir" ]] && valid_dirs+=("$dir")
+    done
 
     mapfile -t WALL < <(
         for format in "${formats[@]}"; do
-            find "$WALL_DIR" -type f -iname "$format" 2>/dev/null
+            find -L "${valid_dirs[@]}" -type f -iname "$format" 2>/dev/null
         done | sort -u
     )
-
-    # Warn if user has video wallpapers but backend can't show them.
-    if [[ "$BACKEND" != "mpvpaper" ]]; then
-        local webm_count
-        webm_count=$(find "$WALL_DIR" -maxdepth 1 -type f -iname '*.webm' 2>/dev/null | wc -l | tr -d ' ')
-        if [[ "${webm_count:-0}" -gt 0 ]]; then
-            log "Found $webm_count .webm file(s). swww only supports images/gifs, so .webm will be skipped. Use --backend mpvpaper if you want video wallpapers."
-        fi
-    fi
 }
-
-find_wallpaper_directory() {
-    debug "Searching for wallpaper directories..."
-
-    local -a formats
-    if [[ "$BACKEND" == "mpvpaper" ]]; then
-        formats=("${MPVPAPER_FORMATS[@]}")
-    else
-        formats=("${SWWW_FORMATS[@]}")
-    fi
-
-    for dir in "${WALL_DIRS[@]}"; do
-        debug "Checking directory: $dir"
-
-        if [[ -L "$dir" ]]; then
-            local real_dir=$(readlink -f "$dir")
-            debug "Directory $dir is a symlink pointing to: $real_dir"
-            dir="$real_dir"
-        fi
-
-        if [[ -d "$dir" ]]; then
-            debug "Directory exists: $dir"
-
-            local image_count=0
-            for format in "${formats[@]}"; do
-                local count=$(find "$dir" -type f -iname "$format" 2>/dev/null | wc -l)
-                image_count=$((image_count + count))
-            done
-
-            if [[ $image_count -gt 0 ]]; then
-                success "Found wallpaper directory: $dir ($image_count images)"
-                echo "$dir"
-                return 0
-            else
-                debug "Directory $dir exists but contains no images"
-            fi
-        else
-            debug "Directory does not exist: $dir"
-        fi
-    done
-
-    error "No wallpaper directory found with images"
-    return 1
-}
-
-WALL_DIR=$(find_wallpaper_directory)
-if [[ $? -ne 0 ]]; then
-    error "Cannot find any wallpaper directory. Please create one of:"
-    for dir in "${WALL_DIRS[@]}"; do
-        error "  - $dir"
-    done
-    exit 1
-fi
-
-debug "Using wallpaper directory: $WALL_DIR"
 
 load_wallpapers
 
 if [[ ${#WALL[@]} -eq 0 ]]; then
-    error "No image files found in $WALL_DIR"
-    if [[ "$BACKEND" == "mpvpaper" ]]; then
-        error "Supported formats (mpvpaper): ${MPVPAPER_FORMATS[*]}"
-    else
-        error "Supported formats (swww): ${SWWW_FORMATS[*]}"
-    fi
+    log_error "No image files found in configured wallpaper directories."
     exit 1
 fi
 
-success "Found ${#WALL[@]} wallpaper(s) in $WALL_DIR"
-
 check_dependencies() {
-    local required_deps=()
-    local optional_deps=("wal")
-    local missing_required=()
-
+    local missing=()
     if [[ "$BACKEND" == "mpvpaper" ]]; then
-        required_deps=("mpvpaper")
+        command -v mpvpaper >/dev/null 2>&1 || missing+=("mpvpaper")
     else
-        required_deps=("swww")
+        command -v awww >/dev/null 2>&1 || command -v swww >/dev/null 2>&1 || missing+=("awww/swww")
     fi
 
-    for dep in "${required_deps[@]}"; do
-        if ! command -v "$dep" >/dev/null 2>&1; then
-            missing_required+=("$dep")
-        fi
-    done
-
-    if [[ ${#missing_required[@]} -gt 0 ]]; then
-        error "Missing required dependencies: ${missing_required[*]}"
-        error "Please install the missing packages"
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_error "Missing required wallpaper dependency: ${missing[*]}"
         return 1
     fi
-
-    for dep in "${optional_deps[@]}"; do
-        if ! command -v "$dep" >/dev/null 2>&1; then
-            debug "Optional dependency not found: $dep (features may be limited)"
-        fi
-    done
-
-    debug "All required dependencies are available"
     return 0
 }
 
-get_outputs() {
-    if [[ "$OUTPUT" != "all" ]]; then
-        echo "$OUTPUT"
-        return 0
-    fi
-
-    # Parse Hyprland monitor names (e.g., eDP-1, DP-1)
-    hyprctl monitors 2>/dev/null | awk '/^Monitor /{print $2}'
-}
-
-get_output_resolution() {
-    # Prints: <width> <height> for a given output name.
-    local out="$1"
-    hyprctl monitors 2>/dev/null | awk -v out="$out" '
-        $1=="Monitor" && $2==out {inmon=1; next}
-        inmon && $1 ~ /^[0-9]+x[0-9]+@/ {
-            split($1, a, "@");
-            split(a[1], b, "x");
-            print b[1], b[2];
-            exit
-        }
-        $1=="Monitor" && $2!=out {inmon=0}
-    '
-}
-
 media_kind() {
-    # Returns: image | gif | video
     local path="$1"
     local ext="${path##*.}"
     ext="${ext,,}"
@@ -321,7 +169,6 @@ media_kind() {
 }
 
 update_lock_wallpaper() {
-    # Hyprlock needs an image path. If current wallpaper is a video/gif, extract a still.
     local src="$1"
     local kind
     kind=$(media_kind "$src")
@@ -331,7 +178,6 @@ update_lock_wallpaper() {
         return 0
     fi
 
-    # For gif/video, create a still if possible.
     if command -v ffmpeg >/dev/null 2>&1; then
         ffmpeg -hide_banner -loglevel error -y -i "$src" -vframes 1 "$LOCK_WALLPAPER_STILL" >/dev/null 2>&1 || true
         if [[ -f "$LOCK_WALLPAPER_STILL" ]]; then
@@ -340,153 +186,54 @@ update_lock_wallpaper() {
     fi
 }
 
-build_mpv_vf_for_output() {
-    local out="$1"
-    local w h
-    read -r w h < <(get_output_resolution "$out" || true)
-    if [[ -z "${w:-}" || -z "${h:-}" ]]; then
-        # If we can't detect size, don't force a vf.
-        return 0
-    fi
-
-    case "$MPV_FILL_MODE" in
-        stretch)
-            echo "scale=${w}:${h}"
-            ;;
-        fit)
-            echo "scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2"
-            ;;
-        cover|*)
-            # Fill screen without distortion by cropping.
-            echo "scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}"
-            ;;
-    esac
-}
-
-mpv_options_for_media_on_output() {
-    local out="$1"
-    local media="$2"
-
-    local kind
-    kind=$(media_kind "$media")
-
-    local opts
-    if [[ "$kind" == "image" ]]; then
-        # IMPORTANT: do NOT use loop for static images, it can cause rapid reload/flicker.
-        opts="$MPV_IMAGE_OPTS"
-    else
-        # video/gif
-        opts="$MPV_OPTS"
-    fi
-
-    # Apply scaling/cropping unless user already specified a vf.
-    if [[ "$opts" != *"vf="* && "$opts" != *"vf-add="* ]]; then
-        local vf
-        vf=$(build_mpv_vf_for_output "$out" || true)
-        if [[ -n "${vf:-}" ]]; then
-            opts="$opts vf=$vf"
-        fi
-    fi
-
-    echo "$opts"
-}
-
 stop_mpvpaper() {
     pkill -x mpvpaper 2>/dev/null || true
 }
 
 stop_swww_daemon() {
+    pkill -x awww-daemon 2>/dev/null || true
     pkill -x swww-daemon 2>/dev/null || true
+    rm -f "/run/user/${UID:-1000}"/*awww-daemon*.sock "/run/user/${UID:-1000}"/*swww-daemon*.sock 2>/dev/null || true
 }
 
 ensure_swww_daemon() {
-    debug "Checking if swww daemon is running"
-    if ! pgrep -x "swww-daemon" >/dev/null 2>&1; then
-        debug "Starting swww daemon"
-        swww-daemon &
-        sleep 2
-        debug "swww daemon started"
-    else
-        debug "swww daemon already running"
+    local daemon_bin="awww-daemon"
+    if ! command -v "$daemon_bin" >/dev/null 2>&1; then
+        daemon_bin="swww-daemon"
+    fi
+    if ! pgrep -x "$daemon_bin" >/dev/null 2>&1; then
+        rm -f "/run/user/${UID:-1000}"/*awww-daemon*.sock "/run/user/${UID:-1000}"/*swww-daemon*.sock 2>/dev/null || true
+        nohup "$daemon_bin" >/dev/null 2>&1 &
+        sleep 1.5
     fi
 }
 
-set_wallpaper_mpvpaper() {
-    local media="$1"
-
-    # mpvpaper warns that swww-daemon may block it; stop it proactively.
-    stop_swww_daemon
-    stop_mpvpaper
-
-    local outputs
-    outputs=$(get_outputs | tr '\n' ' ')
-    if [[ -z "${outputs// }" ]]; then
-        error "No outputs found (hyprctl monitors returned empty)"
-        return 1
-    fi
-
-    local kind
-    kind=$(media_kind "$media")
-
-    for out in $(get_outputs); do
-        # --auto-pause / --auto-stop save resources when wallpaper isn't visible.
-        # NOTE: auto-stop can be too aggressive for static images (may look like flicker).
-        local -a mpvpaper_args
-        mpvpaper_args=(--fork)
-        if [[ "$MPVPAPER_AUTO_PAUSE" == "true" ]]; then
-            mpvpaper_args+=(--auto-pause)
-        fi
-        if [[ "$MPVPAPER_AUTO_STOP" == "true" && "$kind" != "image" ]]; then
-            mpvpaper_args+=(--auto-stop)
-        fi
-        local opts
-        opts=$(mpv_options_for_media_on_output "$out" "$media")
-        mpvpaper_args+=(--mpv-options "$opts" "$out" "$media")
-
-        mpvpaper "${mpvpaper_args[@]}" >/dev/null 2>&1 || {
-            error "mpvpaper failed on output $out"
-            return 1
-        }
-    done
-}
-
-
-update_quickshell_state() {
+update_theme_colors() {
     local wallpaper="$1"
-    local state_file="$HOME/.config/quickshell/data/state/state.json"
-    local legacy_state_file="$HOME/.config/quickshell/state.json"
-    
-    debug "Updating Quickshell state with new wallpaper"
-    
-    if [[ ! -f "$state_file" && -f "$legacy_state_file" ]]; then
-        state_file="$legacy_state_file"
-    elif [[ ! -f "$state_file" ]]; then
-        mkdir -p "$(dirname "$state_file")"
-        printf '{}\n' > "$state_file"
+    local color_source="$wallpaper"
+    local kind
+    kind=$(media_kind "$wallpaper")
+
+    if [[ "$kind" == "video" && -f "$LOCK_WALLPAPER_STILL" ]]; then
+        color_source="$LOCK_WALLPAPER_STILL"
     fi
-    
-    # Use jq if available, otherwise use python
-    if command -v jq >/dev/null 2>&1; then
-        local tmp_file="${state_file}.tmp"
-        jq --arg wp "$wallpaper" '.wallpaper.current = $wp' "$state_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$state_file"
-        debug "Quickshell state updated with jq"
-    elif command -v python3 >/dev/null 2>&1; then
-        python3 <<-EOF 2>/dev/null
-import json
-try:
-    with open("$state_file", "r") as f:
-        data = json.load(f)
-    if "wallpaper" not in data:
-        data["wallpaper"] = {}
-    data["wallpaper"]["current"] = "$wallpaper"
-    with open("$state_file", "w") as f:
-        json.dump(data, f, indent=2)
-except Exception as e:
-    pass
-EOF
-        debug "Quickshell state updated with python"
-    else
-        debug "Neither jq nor python3 available, skipping quickshell update"
+
+    log_info "Synchronizing color palette from wallpaper..."
+
+    if command -v matugen >/dev/null 2>&1; then
+        log_info "Generating colors with Matugen..."
+        matugen image "$color_source" --source-color-index 0 >/dev/null 2>&1 || log_warn "Matugen palette generation returned non-zero."
+    elif command -v wallust >/dev/null 2>&1; then
+        log_info "Generating colors with Wallust..."
+        wallust run "$color_source" >/dev/null 2>&1 || log_warn "Wallust palette generation returned non-zero."
+    elif command -v wal >/dev/null 2>&1; then
+        log_info "Generating colors with Pywal..."
+        wal -i "$color_source" --backend wal -q >/dev/null 2>&1 || true
+    fi
+
+    local unifier="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/system/theme-unifier.sh"
+    if [[ -f "$unifier" ]]; then
+        "$unifier" reload >/dev/null 2>&1 || true
     fi
 }
 
@@ -495,97 +242,62 @@ apply_wallpaper() {
     local wallpaper_name
     wallpaper_name=$(basename "$wallpaper")
 
-    log "Changing wallpaper to: $wallpaper_name"
+    log_info "Setting wallpaper: $wallpaper_name"
 
-    if [[ ! -f "$wallpaper" ]]; then
-        error "Wallpaper file not found: $wallpaper"
+    if [[ ! -f "$wallpaper" || ! -r "$wallpaper" ]]; then
+        log_error "Cannot read wallpaper file: $wallpaper"
         return 1
     fi
 
-    if [[ ! -r "$wallpaper" ]]; then
-        error "Cannot read wallpaper file: $wallpaper"
-        return 1
-    fi
+    local kind
+    kind=$(media_kind "$wallpaper")
 
-    if [[ "$BACKEND" == "mpvpaper" ]]; then
-        debug "Setting wallpaper with mpvpaper"
-        set_wallpaper_mpvpaper "$wallpaper" || return 1
-        debug "mpvpaper wallpaper set successfully"
+    if [[ "$kind" == "video" || "$BACKEND" == "mpvpaper" ]]; then
+        stop_swww_daemon
+        stop_mpvpaper
+        local mpvpaper_output="$OUTPUT"
+        [[ "$mpvpaper_output" == "all" ]] && mpvpaper_output="*"
+        local auto_opts=""
+        [[ "$MPVPAPER_AUTO_PAUSE" == "true" ]] && auto_opts="-p"
+        nohup setsid mpvpaper $auto_opts -o "$MPV_OPTS" "$mpvpaper_output" "$wallpaper" </dev/null >/dev/null 2>&1 &
+        disown $! 2>/dev/null || true
     else
-        # If we are switching back to swww, make sure mpvpaper is not still running.
         stop_mpvpaper
         ensure_swww_daemon
-
-        debug "Setting wallpaper with swww"
-        if swww img "$wallpaper" --transition-type wipe --transition-duration 2 >/dev/null 2>&1; then
-            debug "swww wallpaper set successfully"
-        else
-            error "Failed to set wallpaper with swww"
-            return 1
+        local client_bin="awww"
+        if ! command -v "$client_bin" >/dev/null 2>&1; then
+            client_bin="swww"
         fi
+        "$client_bin" img "$wallpaper" --transition-type wipe --transition-duration 1.5 >/dev/null 2>&1 || return 1
     fi
 
-    if [[ "$USE_PYWAL" == "true" ]]; then
-        if command -v wal >/dev/null 2>&1; then
-            debug "Generating color palette with pywal"
-            if wal -i "$wallpaper" --backend wal -q >/dev/null 2>&1; then
-                debug "Color palette generated successfully"
-            else
-                debug "Failed to generate color palette (non-critical)"
-            fi
-        else
-            debug "pywal not available, skipping color generation"
-        fi
-    else
-        debug "pywal not requested, skipping color generation"
-    fi
-
-
-    success "Wallpaper changed to: $wallpaper_name"
+    log_success "Wallpaper updated to: $wallpaper_name"
     echo "$wallpaper" > "$CURRENT_WALLPAPER_FILE" 2>/dev/null || true
-    update_quickshell_state "$wallpaper"
     update_lock_wallpaper "$wallpaper"
+
+    if [[ "$USE_THEME_ENGINE" == "true" ]]; then
+        update_theme_colors "$wallpaper"
+    fi
 }
 
-
 change_wallpaper() {
-    debug "Starting wallpaper change process"
     local wallpaper
     wallpaper=$(get_next_wallpaper) || {
-        error "Failed to get next wallpaper from queue"
+        log_error "Failed to retrieve next wallpaper from queue"
         return 1
     }
     apply_wallpaper "$wallpaper"
 }
 
-cleanup() {
-    log "Script terminating, cleaning up..."
-    exit 0
-}
-
-trap cleanup SIGTERM SIGINT
-
-
-
 main() {
-    log "=== AleatoryWall Script Started ==="
+    check_dependencies || exit 1
 
-    if ! check_dependencies; then
-        exit 1
-    fi
-
-    local requested_once=false
     local requested_file=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --debug)
                 DEBUG=true
-                debug "Debug mode enabled"
-                shift
-                ;;
-            --once)
-                requested_once=true
                 shift
                 ;;
             --file)
@@ -600,76 +312,42 @@ main() {
                 OUTPUT="${2:-all}"
                 shift 2
                 ;;
-            --mpv-options)
-                MPV_OPTS="${2:-$MPV_OPTS}"
-                shift 2
-                ;;
-            --pywal|-p)
-                USE_PYWAL=true
-                log "pywal enabled via argument"
+            --once|change)
                 shift
                 ;;
-
+            --pywal|-p|--theme)
+                USE_THEME_ENGINE=true
+                shift
+                ;;
             --help|-h)
-                echo "AleatoryWall - Automatic wallpaper changer"
-                echo "Usage: $0 [--debug] [--once] [--file PATH_OR_NAME] [--backend swww|mpvpaper] [--output all|OUTPUT] [--mpv-options \"...\"] [--pywal|-p] [--help]"
-                echo "  --debug                 Enable debug output"
-                echo "  --once                  Change wallpaper once and exit"
-                echo "  --file PATH_OR_NAME      Force a specific wallpaper (absolute path or basename in the wallpaper dir)"
-                echo "  --backend               Wallpaper backend: swww (default) or mpvpaper"
-                echo "  --output                Output name (e.g., eDP-1) or 'all'"
-                echo "  --mpv-options \"...\"     mpv options forwarded by mpvpaper (default: no-audio loop)"
-                echo "  (mpvpaper image defaults) Uses MPV_IMAGE_OPTS=\"no-audio --image-display-duration=inf\" to avoid flicker"
-                echo "  (mpvpaper scaling)        Uses MPV_FILL_MODE=cover|fit|stretch (default: cover)"
-                echo "  (mpvpaper defaults)      Uses MPVPAPER_AUTO_PAUSE=true and MPVPAPER_AUTO_STOP=true to reduce CPU/RAM when hidden"
-                echo "  --pywal|-p              Apply pywal color scheme after wallpaper change"
-                echo "  --help                  Show this help"
+                cat << EOF
+AleatoryWall - HyprGlass Wallpaper Engine
+Usage: $0 [OPTIONS]
+  --file PATH         Apply specific wallpaper file.
+  --backend swww|mpvpaper
+  --output OUTPUT     Target monitor output (default: all).
+  --pywal, -p         Sync color palette with Matugen/Wallust/Pywal.
+  --help, -h          Show help message.
+EOF
                 exit 0
                 ;;
             *)
-                echo "Unknown arg: $1" >&2
-                exit 2
+                log_error "Unknown argument: $1"
+                exit 1
                 ;;
         esac
     done
 
-    if [[ "$BACKEND" != "swww" && "$BACKEND" != "mpvpaper" ]]; then
-        echo "Invalid --backend: $BACKEND (use swww|mpvpaper)" >&2
-        exit 2
-    fi
-
     if [[ -n "$requested_file" ]]; then
         local target="$requested_file"
-        # If not an existing file path, try to resolve as a name inside the wallpaper directory.
-        if [[ ! -f "$target" ]]; then
-            if [[ -f "$WALL_DIR/$target" ]]; then
-                target="$WALL_DIR/$target"
-            fi
+        if [[ ! -f "$target" && -f "$WALL_DIR/$target" ]]; then
+            target="$WALL_DIR/$target"
         fi
-
-        if [[ ! -f "$target" ]]; then
-            error "Requested file not found: $requested_file"
-            error "Tried: $requested_file and $WALL_DIR/$requested_file"
-            exit 1
-        fi
-
-        # Force a single apply and exit.
         apply_wallpaper "$target"
         exit 0
     fi
 
-    # Detect if a daemon instance is already running (exclude current PID).
-    local other_pid=""
-    other_pid=$(pgrep -f "${Script_Wall}" 2>/dev/null | awk -v me="$$" '$1 != me {print $1; exit}')
-
-    if [[ -n "$other_pid" ]]; then
-        log "Another instance is already running (PID: $other_pid) — changing wallpaper once"
-    else
-        log "Running AleatoryWall.sh in single-change mode"
-    fi
-
     change_wallpaper
-    exit 0
 }
 
 main "$@"

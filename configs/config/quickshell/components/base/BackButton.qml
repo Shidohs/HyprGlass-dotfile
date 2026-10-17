@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import qs.components
 import qs.config
 
 Button {
@@ -45,11 +46,13 @@ Button {
     }
 
     // --- Tooltip ---
-    ToolTip.visible: root.hovered && root.tooltipText !== ""
-    ToolTip.text: root.tooltipText
-    ToolTip.delay: 500
+    QsToolTip {
+        shown: root.hovered && root.tooltipText !== ""
+        text: root.tooltipText
+        delay: 500
+    }
     
-    onClicked: pulseAnimation.start()
+    onClicked: pulseAnimation.restart()
 
     // Icon display
     contentItem: Text {

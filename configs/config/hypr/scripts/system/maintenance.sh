@@ -1,201 +1,156 @@
-#!/bin/bash
-# █▀▀ █▄░█ █░█ █ █▀█ █▀█ █▄░█ █▀▄▀█ █▀▀ █▄░█ ▀█▀
-# █▀░ █░▀█ ▀▄▀ █ █▀▄ █▄█ █░▀█ █░▀░█ ██▄ █░▀█ ░█░
-# Script de mantenimiento para Hyprland
+#!/usr/bin/env bash
+# HyprGlass - System Maintenance Utility
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# Colores para output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
 
-# Función de log
-log() {
-    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-success() {
-    echo -e "${GREEN}[✓]${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[✗]${NC} $1"
-}
-
-warning() {
-    echo -e "${YELLOW}[!]${NC} $1"
-}
-
-# Verificar si se ejecuta como root para algunas operaciones
-if [ "$EUID" -eq 0 ]; then
-    SUDO=""
+if [[ -f "$LIB_DIR/logging.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$LIB_DIR/logging.sh"
 else
+    log_info() { echo "[INFO] $1"; }
+    log_warn() { echo "[WARN] $1"; }
+    log_error() { echo "[ERROR] $1"; }
+    log_success() { echo "[OK] $1"; }
+fi
+
+SUDO=""
+if [[ "$EUID" -ne 0 ]]; then
     SUDO="sudo"
 fi
 
-log "Iniciando mantenimiento del sistema Hyprland..."
-
-# Función para limpiar cachés
 clean_caches() {
-    log "Limpiando cachés..."
+    log_info "Cleaning system caches..."
 
-    # Cache de Hyprland
-    if [ -d "$HOME/.cache/hyprland" ]; then
+    if [[ -d "$HOME/.cache/hyprland" ]]; then
         rm -rf "$HOME/.cache/hyprland"
-        success "Cache de Hyprland eliminado"
+        log_success "Hyprland cache cleared."
     fi
 
-    # Cache de shaders
-    if [ -d "$HOME/.cache/shader-cache" ]; then
+    if [[ -d "$HOME/.cache/shader-cache" ]]; then
         rm -rf "$HOME/.cache/shader-cache"
-        success "Cache de shaders eliminado"
+        log_success "Shader cache cleared."
     fi
 
-    # Thumbnails
-    if [ -d "$HOME/.cache/thumbnails" ]; then
+    if [[ -d "$HOME/.cache/thumbnails" ]]; then
         rm -rf "$HOME/.cache/thumbnails"
-        success "Thumbnails eliminados"
+        log_success "Thumbnails cleared."
     fi
 
-    # Cache de fuentes
-    if [ -d "$HOME/.cache/fontconfig" ]; then
+    if [[ -d "$HOME/.cache/fontconfig" ]]; then
         rm -rf "$HOME/.cache/fontconfig"
-        success "Cache de fuentes eliminado"
+        log_success "Fontconfig cache cleared."
     fi
 }
 
-# Función para limpiar cachés de aplicaciones
 clean_app_caches() {
-    log "Limpiando cachés de aplicaciones..."
+    log_info "Cleaning browser and application caches..."
 
-    # Firefox
-    if [ -d "$HOME/.cache/mozilla/firefox" ]; then
-        rm -rf "$HOME/.cache/mozilla/firefox"/*.default*/cache2
-        success "Cache de Firefox eliminado"
+    if [[ -d "$HOME/.cache/mozilla/firefox" ]]; then
+        rm -rf "$HOME/.cache/mozilla/firefox"/*.default*/cache2 2>/dev/null || true
+        log_success "Firefox cache cleared."
     fi
 
-    # Chromium
-    if [ -d "$HOME/.cache/chromium" ]; then
-        rm -rf "$HOME/.cache/chromium"/*/Cache
-        success "Cache de Chromium eliminado"
+    if [[ -d "$HOME/.cache/chromium" ]]; then
+        rm -rf "$HOME/.cache/chromium"/*/Cache 2>/dev/null || true
+        log_success "Chromium cache cleared."
     fi
-
-    # Otros navegadores
-    for cache_dir in "$HOME/.cache"/*; do
-        if [[ -d "$cache_dir" && ("$cache_dir" =~ .*chrome.* || "$cache_dir" =~ .*brave.*) ]]; then
-            rm -rf "$cache_dir"/*/Cache
-            success "Cache de $(basename "$cache_dir") eliminado"
-        fi
-    done
 }
 
-# Función para optimizar base de datos de localizaciones
 optimize_locales() {
-    log "Optimizando configuración regional..."
-    if command -v locale-gen &> /dev/null; then
-        $SUDO locale-gen --purge 2>/dev/null || warning "No se pudo regenerar locales"
+    log_info "Optimizing system locales..."
+    if command -v locale-gen >/dev/null 2>&1; then
+        $SUDO locale-gen --purge >/dev/null 2>&1 || log_warn "Could not regenerate locales."
     fi
 }
 
-# Función para limpiar paquetes huérfanos
 clean_orphans() {
-    log "Buscando paquetes huérfanos..."
-
-    if command -v pacman &> /dev/null; then
+    log_info "Searching for orphan packages..."
+    if command -v pacman >/dev/null 2>&1; then
+        local orphans
         orphans=$(pacman -Qdtq 2>/dev/null || true)
-        if [ -n "$orphans" ]; then
-            warning "Paquetes huérfanos encontrados:"
-            echo "$orphans"
-            echo "¿Deseas eliminarlos? (s/N)"
-            read -r respuesta
-            if [[ "$respuesta" =~ ^[Ss]$ ]]; then
-                $SUDO pacman -Rns $orphans
-                success "Paquetes huérfanos eliminados"
+        if [[ -n "$orphans" ]]; then
+            log_warn "Orphan packages found: $orphans"
+            if [[ "${NON_INTERACTIVE:-false}" != "true" ]]; then
+                read -p "Remove orphan packages? (y/N): " -r answer
+                if [[ "$answer" =~ ^[Yy]$ ]]; then
+                    $SUDO pacman -Rns $orphans
+                    log_success "Orphans removed."
+                fi
             fi
         else
-            success "No se encontraron paquetes huérfanos"
+            log_success "No orphan packages found."
         fi
     fi
 }
 
-# Función para limpiar journal de systemd
 clean_journal() {
-    log "Limpiando journal de systemd..."
-    if command -v journalctl &> /dev/null; then
-        $SUDO journalctl --vacuum-time=7days 2>/dev/null || warning "No se pudo limpiar journal"
-        success "Journal limpiado (últimos 7 días)"
+    log_info "Vacuuming systemd journal logs (keeping last 7 days)..."
+    if command -v journalctl >/dev/null 2>&1; then
+        $SUDO journalctl --vacuum-time=7days >/dev/null 2>&1 || log_warn "Could not vacuum journal."
+        log_success "Systemd journal cleaned."
     fi
 }
 
-# Función para verificar servicios de usuario
 check_user_services() {
-    log "Verificando servicios de usuario..."
+    log_info "Restarting user audio services..."
+    systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || log_warn "Audio services restart failed."
 
-    # Reiniciar servicios importantes
-    systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || warning "No se pudieron reiniciar servicios de audio"
-
-    # Verificar estado de servicios críticos
-    if systemctl --user is-active --quiet hypridle; then
-        success "Hypridle activo"
+    if systemctl --user is-active --quiet hypridle 2>/dev/null; then
+        log_success "Hypridle service is active."
     else
-        warning "Hypridle no está activo"
-        systemctl --user start hypridle 2>/dev/null && success "Hypridle iniciado"
+        log_warn "Hypridle not active. Attempting start..."
+        systemctl --user start hypridle 2>/dev/null || true
     fi
 }
 
-# Función para verificar permisos
 check_permissions() {
-    log "Verificando permisos de archivos..."
-
-    # Verificar permisos de scripts
-    find "$HOME/.config/hypr/scripts" -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
-
-    # Verificar permisos de configuración
-    chmod 644 "$HOME/.config/hypr/"*.conf 2>/dev/null || true
-    chmod 644 "$HOME/.config/hypr/config/"*.conf 2>/dev/null || true
-
-    success "Permisos verificados"
+    log_info "Verifying file execution permissions..."
+    find "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts" -type f -name "*.sh" -exec chmod +x {} + 2>/dev/null || true
+    log_success "Script permissions verified."
 }
 
-# Función para mostrar estadísticas del sistema
 show_stats() {
-    log "Estadísticas del sistema:"
-    echo "Uso de disco:"
-    df -h | grep -E "(Filesystem|/dev/)" | head -6
-
+    log_info "System Performance Overview:"
+    echo "Disk Usage:"
+    df -h | grep -E "(Filesystem|/dev/)" | head -n 6
     echo
-    echo "Uso de memoria:"
+    echo "Memory Usage:"
     free -h
-
-    echo
-    echo "Procesos de Hyprland:"
-    ps aux | grep -E "(hypr|waybar|dunst|rofi)" | grep -v grep | wc -l | xargs echo "- procesos activos"
 }
 
-# Menú principal
 main() {
-    echo "🧹 Mantenimiento de Hyprland"
-    echo "============================"
-    echo "1. Limpiar cachés del sistema"
-    echo "2. Limpiar cachés de aplicaciones"
-    echo "3. Optimizar configuración regional"
-    echo "4. Buscar y limpiar paquetes huérfanos"
-    echo "5. Limpiar journal de systemd"
-    echo "6. Verificar servicios de usuario"
-    echo "7. Verificar permisos"
-    echo "8. Mostrar estadísticas"
-    echo "9. Ejecutar mantenimiento completo"
-    echo "0. Salir"
+    if [[ "${1:-}" == "auto" ]]; then
+        NON_INTERACTIVE=true
+        clean_caches
+        clean_app_caches
+        optimize_locales
+        clean_journal
+        check_user_services
+        check_permissions
+        log_success "Automated maintenance finished successfully."
+        exit 0
+    fi
+
+    echo "🧹 HyprGlass Maintenance System"
+    echo "==============================="
+    echo "1. Clean system caches"
+    echo "2. Clean application caches"
+    echo "3. Optimize system locales"
+    echo "4. Remove orphan packages"
+    echo "5. Vacuum systemd logs"
+    echo "6. Verify user services"
+    echo "7. Verify permissions"
+    echo "8. Display system stats"
+    echo "9. Run full maintenance"
+    echo "0. Exit"
     echo
-    echo "Selecciona una opción:"
 
-    read -r opcion
-
-    case $opcion in
+    read -p "Select option [1-9]: " -r option
+    case "$option" in
         1) clean_caches ;;
         2) clean_app_caches ;;
         3) optimize_locales ;;
@@ -213,43 +168,9 @@ main() {
             check_permissions
             show_stats
             ;;
-        0)
-            echo "¡Hasta luego!"
-            exit 0
-            ;;
-        *)
-            error "Opción no válida"
-            ;;
+        0) exit 0 ;;
+        *) log_error "Invalid option" ;;
     esac
-
-    echo
-    echo "¿Deseas realizar otra operación? (s/N)"
-    read -r respuesta
-    if [[ "$respuesta" =~ ^[Ss]$ ]]; then
-        main
-    fi
 }
 
-# Ejecutar menú si no hay argumentos
-if [ $# -eq 0 ]; then
-    main
-else
-    # Si se pasan argumentos, ejecutar mantenimiento completo automáticamente
-    case $1 in
-        "auto")
-            clean_caches
-            clean_app_caches
-            optimize_locales
-            clean_journal
-            check_user_services
-            check_permissions
-            success "Mantenimiento automático completado"
-            ;;
-        *)
-            echo "Uso: $0 [auto]"
-            echo "  sin argumentos: menú interactivo"
-            echo "  auto: mantenimiento completo automático"
-            exit 1
-            ;;
-    esac
-fi
+main "$@"

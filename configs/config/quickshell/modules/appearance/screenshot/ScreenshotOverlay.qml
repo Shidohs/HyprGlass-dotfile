@@ -2,8 +2,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.config
+import "." as ScreenshotParts
 
 PanelWindow {
     id: root
@@ -25,7 +25,7 @@ PanelWindow {
     color: "transparent"
 
     // Monitor info
-    property var hyprMonitor: Hyprland.monitorFor(modelData)
+    property var outputInfo: root.screenshot.monitorInfoForScreen(root.screen.name)
     property bool isActiveMonitor: screen === root.screenshot.activeScreen
 
     // =================================================================
@@ -70,7 +70,7 @@ PanelWindow {
     // REGION SELECTOR
     // =================================================================
 
-    RegionSelector {
+    ScreenshotParts.RegionSelector {
         id: regionSelector
         anchors.fill: parent
         visible: root.isActiveMonitor && root.screenshot.mode === "region"
@@ -82,7 +82,7 @@ PanelWindow {
     // WINDOW SELECTOR
     // =================================================================
 
-    WindowSelector {
+    ScreenshotParts.WindowSelector {
         anchors.fill: parent
         visible: root.isActiveMonitor && root.screenshot.mode === "window"
         screenshot: root.screenshot
@@ -114,7 +114,7 @@ PanelWindow {
 
         onEntered: {
             root.screenshot.activeScreen = root.screen;
-            root.screenshot.hyprlandMonitor = root.hyprMonitor;
+            root.screenshot.updateActiveMonitorInfo(root.screen.name);
 
             if (root.screenshot.mode === "screen") {
                 root.screenshot.setMode("screen");
@@ -130,7 +130,7 @@ PanelWindow {
 
             if (root.screenshot.activeScreen !== root.screen) {
                 root.screenshot.activeScreen = root.screen;
-                root.screenshot.hyprlandMonitor = root.hyprMonitor;
+                root.screenshot.updateActiveMonitorInfo(root.screen.name);
                 if (root.screenshot.mode === "screen") {
                     root.screenshot.setMode("screen");
                 }
@@ -199,7 +199,7 @@ PanelWindow {
     // CONTROL BAR
     // =================================================================
 
-    ControlBar {
+    ScreenshotParts.ControlBar {
         visible: root.isActiveMonitor
         screenshot: root.screenshot
         z: 10

@@ -44,6 +44,15 @@ Singleton {
     readonly property real sourceVolume: sourceReady ? (source.audio.volume ?? 0) : 0
     readonly property int sourcePercentage: Math.round(sourceVolume * 100)
 
+    readonly property string iconSource: {
+        if (!sinkReady || muted || volume <= 0) return "audio-volume-muted-symbolic";
+        if (volume < 0.33) return "audio-volume-low-symbolic";
+        if (volume < 0.67) return "audio-volume-medium-symbolic";
+        return "audio-volume-high-symbolic";
+    }
+
+    readonly property string sourceIconSource: (!sourceReady || sourceMuted) ? "microphone-sensitivity-muted-symbolic" : "microphone-sensitivity-high-symbolic"
+
     readonly property string systemIcon: {
         if (!sinkReady || muted || volume <= 0)
             return "";

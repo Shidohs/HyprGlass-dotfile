@@ -24,7 +24,7 @@ Singleton {
     readonly property color backgroundColor: ThemeService.color("background", "#1a1b26")
     readonly property real backgroundOpacity: getState("opacity.background", 0.7)
     readonly property color backgroundTransparentColor: Qt.alpha(backgroundColor, backgroundOpacity)
-    
+
     // Opacidad para módulos/popups (menor para mostrar mejor el blur)
     readonly property real moduleOpacity: getState("opacity.modules", 0.70)
     readonly property color moduleBackgroundColor: Qt.alpha(backgroundColor, moduleOpacity)
@@ -32,7 +32,7 @@ Singleton {
     // Opacidad para el launcher (fullscreen, más sutil para que el blur sea el protagonista)
     readonly property real launcherOpacity: getState("opacity.launcher", 0.55)
     readonly property color launcherBackgroundColor: Qt.alpha(backgroundColor, launcherOpacity)
-    
+
     readonly property color surface0Color: ThemeService.color("surface0", "#24283b")
     readonly property color surface1Color: ThemeService.color("surface1", "#292e42")
     readonly property color surface2Color: ThemeService.color("surface2", "#414868")
@@ -89,15 +89,6 @@ Singleton {
     readonly property int animDurationLong: getState("animations.long", 400)
 
     readonly property bool screenshotAnimations: getState("animations.screenshot", true)
-
-    // ========================================================================
-    // NOTIFICATIONS
-    // ========================================================================
-    readonly property int notifWidth: getState("notifications.width", 350)
-    readonly property int notifImageSize: getState("notifications.imageSize", 40)
-    readonly property int notifTimeout: getState("notifications.timeout", 5000)
-    readonly property int notifSpacing: getState("notifications.spacing", 10)
-    readonly property int notifMaxHistory: getState("notifications.maxHistory", 50)
 
     // ========================================================================
     // OSD

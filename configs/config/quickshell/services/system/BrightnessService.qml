@@ -16,6 +16,7 @@ Singleton {
     property real brightness: 1.0
     property int maxBrightness: 100
     property int currentBrightness: 100
+    property int _pendingBrightnessPercent: -1
     readonly property bool available: backlightDevice !== ""
     property string backlightDevice: ""
     readonly property string brightnessPath: available ? ("/sys/class/backlight/" + backlightDevice + "/brightness") : ""
@@ -47,6 +48,8 @@ Singleton {
 
     // Night light icon
     readonly property string nightLightIcon: nightLightEnabled ? "󰌵" : "󰌶"
+    property bool hyprsunsetReady: false
+    property bool _nightLightSyncPending: false
 
     // ========================================================================
     // INITIALIZATION
@@ -70,21 +73,33 @@ Singleton {
 
             console.log("[Brightness] Loaded state - enabled:", root.nightLightEnabled, "intensity:", root.nightLightIntensity);
 
-            // Always apply the loaded state (enable or disable)
-            applyStateTimer.restart();
+            root._queueNightLightSync();
         }
     }
 
     Timer {
-        id: applyStateTimer
-        interval: 1000
+        id: brightnessApplyDebounce
+        interval: 75
         onTriggered: {
-            if (root.nightLightEnabled) {
-                root.applyNightLight();
+            if (root._pendingBrightnessPercent < 0)
+                return;
+            if (setBrightnessProc.running) {
+                brightnessApplyDebounce.restart();
                 return;
             }
-            root.disableNightLight();
+
+            const percentValue = root._pendingBrightnessPercent;
+            root._pendingBrightnessPercent = -1;
+            setBrightnessProc._requestedPercent = percentValue;
+            setBrightnessProc.command = ["brightnessctl", "set", percentValue.toString() + "%"];
+            setBrightnessProc.running = true;
         }
+    }
+
+    Timer {
+        id: nightLightSyncDebounce
+        interval: 120
+        onTriggered: root._flushNightLightSync()
     }
 
     // ========================================================================
@@ -100,6 +115,29 @@ Singleton {
     // Converts Kelvin temperature to intensity (0-1)
     function updateIntensityFromTemperature() {
         nightLightIntensity = (nightLightTemperature - 2500) / 3000;
+    }
+
+    function _queueNightLightSync() {
+        root._nightLightSyncPending = true;
+        nightLightSyncDebounce.restart();
+    }
+
+    function _flushNightLightSync() {
+        if (!root._nightLightSyncPending)
+            return;
+        if (!root.hyprsunsetReady || enableNightLightProc.running || disableNightLightProc.running || restartAndEnableProc.running) {
+            nightLightSyncDebounce.restart();
+            return;
+        }
+
+        root._nightLightSyncPending = false;
+        if (root.nightLightEnabled) {
+            enableNightLightProc.command = ["hyprctl", "hyprsunset", "temperature", root.nightLightTemperature.toString()];
+            enableNightLightProc.running = true;
+            return;
+        }
+
+        disableNightLightProc.running = true;
     }
 
     // ========================================================================
@@ -162,12 +200,16 @@ Singleton {
     // ========================================================================
 
     function setBrightness(value) {
+        if (!root.available)
+            return;
         const clamped = Math.max(0.05, Math.min(1.0, value));
-        root.brightness = clamped;
-
         const percentValue = Math.round(clamped * 100);
-        setBrightnessProc.command = ["brightnessctl", "set", percentValue.toString() + "%"];
-        setBrightnessProc.running = true;
+        if (percentValue === Math.round(root.brightness * 100) && root._pendingBrightnessPercent === -1)
+            return;
+
+        root.brightness = clamped;
+        root._pendingBrightnessPercent = percentValue;
+        brightnessApplyDebounce.restart();
     }
 
     function increaseBrightness() {
@@ -204,13 +246,13 @@ Singleton {
     function enableNightLight() {
         nightLightEnabled = true;
         StateService.set("nightLight.enabled", true);
-        applyNightLight();
+        root._queueNightLightSync();
     }
 
     function disableNightLight() {
         nightLightEnabled = false;
         StateService.set("nightLight.enabled", false);
-        disableNightLightProc.running = true;
+        root._queueNightLightSync();
     }
 
     // Set the intensity and apply if active
@@ -219,9 +261,8 @@ Singleton {
         updateTemperatureFromIntensity();
         StateService.set("nightLight.intensity", nightLightIntensity);
 
-        if (nightLightEnabled) {
-            applyNightLight();
-        }
+        if (nightLightEnabled)
+            root._queueNightLightSync();
     }
 
     function setNightLightTemperature(temp) {
@@ -229,15 +270,13 @@ Singleton {
         updateIntensityFromTemperature();
         StateService.set("nightLight.intensity", nightLightIntensity);
 
-        if (nightLightEnabled) {
-            applyNightLight();
-        }
+        if (nightLightEnabled)
+            root._queueNightLightSync();
     }
 
     // Apply the current temperature
     function applyNightLight() {
-        enableNightLightProc.command = ["hyprctl", "hyprsunset", "temperature", nightLightTemperature.toString()];
-        enableNightLightProc.running = true;
+        root._queueNightLightSync();
     }
 
     // ========================================================================
@@ -246,7 +285,13 @@ Singleton {
 
     Process {
         id: setBrightnessProc
-        onExited: getCurrentBrightness.running = true
+        property int _requestedPercent: -1
+
+        onExited: {
+            getCurrentBrightness.running = true;
+            if (root._pendingBrightnessPercent >= 0 && root._pendingBrightnessPercent !== _requestedPercent)
+                brightnessApplyDebounce.restart();
+        }
     }
 
     // ========================================================================
@@ -263,10 +308,9 @@ Singleton {
             fi
         `]
         onExited: {
-            // hyprsunset is ready — apply state if already loaded
-            if (!StateService.isLoading && root.nightLightEnabled) {
-                root.applyNightLight();
-            }
+            root.hyprsunsetReady = true;
+            if (!StateService.isLoading)
+                root._queueNightLightSync();
         }
     }
 
@@ -280,7 +324,8 @@ Singleton {
         stderr: SplitParser {
             onRead: data => {
                 console.error("[Brightness] Enable night light error:", data);
-                if (data.includes("error") || data.includes("failed")) {
+                if ((data.includes("error") || data.includes("failed")) && !restartAndEnableProc.running) {
+                    root.hyprsunsetReady = false;
                     restartAndEnableProc.running = true;
                 }
             }
@@ -302,6 +347,11 @@ Singleton {
             sleep 0.5
             hyprctl hyprsunset temperature ` + root.nightLightTemperature + `
         `]
+        onExited: {
+            root.hyprsunsetReady = true;
+            if (root.nightLightEnabled)
+                root._queueNightLightSync();
+        }
     }
 
     Process {

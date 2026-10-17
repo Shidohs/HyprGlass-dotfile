@@ -65,7 +65,7 @@ Rectangle {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: {
-            pulseAnimation.start()
+            pulseAnimation.restart()
             root.clicked()
         }
     }

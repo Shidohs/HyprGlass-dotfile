@@ -9,6 +9,7 @@ import qs.components
 import "../calendar/"
 import "../quickSettings/"
 import "../notifications/"
+
 import "../../tools/systemMonitor/"
 import "../../tools/orbit/"
 
@@ -29,8 +30,8 @@ Scope {
             // When hidden, leave 1px visible at the top to catch mouse hover
             readonly property int hiddenMargin: -(height - 1)
 
-            // NameSpace para Hyprland (coincide con tu regla qs_.*)
-            WlrLayershell.namespace: "qs_modules"
+            // Namespace separado para que el bar conserve glass sin heredar ajustes de módulos transitorios.
+            WlrLayershell.namespace: "qs_bar"
             WlrLayershell.layer: WlrLayer.Top
 
             // --- BAR CONFIGURATION ---
@@ -120,7 +121,8 @@ Scope {
                     OrbitChatbutton {}
                     TrayWidget {}
                     QuickSettingsButton {}
-                    NotificationButton {}
+                    SwayncButton {}
+
                 }
             }
         }

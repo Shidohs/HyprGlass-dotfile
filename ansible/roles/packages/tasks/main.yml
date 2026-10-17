@@ -1,0 +1,12 @@
+---
+- name: Read package list from requirements/arch-pacman.txt
+  set_fact:
+    pacman_packages: "{{ lookup('file', '../../../requirements/arch-pacman.txt').splitlines() | reject('match', '^#.*$') | reject('match', '^$') | list }}"
+
+- name: Install official packages (requires sudo)
+  become: true
+  pacman:
+    name: "{{ pacman_packages }}"
+    state: present
+    update_cache: yes
+  ignore_errors: yes # In case some are AUR only

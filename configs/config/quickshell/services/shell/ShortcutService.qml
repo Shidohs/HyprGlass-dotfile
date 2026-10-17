@@ -27,10 +27,7 @@ Singleton {
                 name: "quick_settings",
                 description: "Quick settings"
             },
-            notifications: {
-                name: "notifications",
-                description: "Notification center"
-            },
+
             clipboard: {
                 name: "clipboard_history",
                 description: "Clipboard history"
@@ -48,7 +45,7 @@ Singleton {
     signal screenshotRequested
     signal powerMenuRequested
     signal quickSettingsRequested
-    signal notificationsRequested
+
     signal clipboardRequested
     signal orbitRequested
 
@@ -69,9 +66,7 @@ Singleton {
         case "quick_settings":
             quickSettingsRequested();
             break;
-        case "notifications":
-            notificationsRequested();
-            break;
+
         case "clipboard_history":
             clipboardRequested();
             break;

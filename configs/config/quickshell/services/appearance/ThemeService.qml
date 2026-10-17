@@ -28,6 +28,7 @@ import qs.config
 
 Singleton {
     id: root
+    readonly property bool hyprlandSessionAvailable: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "") !== ""
 
     // Helper function to shorten the service call
     function getState(path, fallback) {
@@ -50,6 +51,9 @@ Singleton {
     readonly property string gtkColorsPath3: Quickshell.env("HOME") + "/.config/gtk-3.0/colors.css"
     readonly property string gtkColorsPath4: Quickshell.env("HOME") + "/.config/gtk-4.0/colors.css"
     readonly property string qtColorSchemePath: Quickshell.env("HOME") + "/.local/share/color-schemes/Lyne.colors"
+    readonly property string qt5ctConfPath: Quickshell.env("HOME") + "/.config/qt5ct/qt5ct.conf"
+    readonly property string qt6ctConfPath: Quickshell.env("HOME") + "/.config/qt6ct/qt6ct.conf"
+    readonly property string kdeglobalsPath: Quickshell.env("HOME") + "/.config/kdeglobals"
     readonly property string matugenConfigPath: Quickshell.env("HOME") + "/.config/quickshell/matugen/config.toml"
     readonly property string matugenCachePath: Quickshell.env("HOME") + "/.cache/matugen"
 
@@ -165,7 +169,12 @@ Singleton {
         function onMatugenPaletteLoaded(palette) {
             root.palette = palette;
             console.log("[ThemeService] Auto palette applied");
-            root._loadAndApplyHyprlandColors();
+            // Apply GTK colors from auto palette so swaync picks them up
+            root._applyGtkFromPalette(palette);
+            root._applyQtFromPalette(palette);
+            root._reloadSwaync();
+            if (root.hyprlandSessionAvailable)
+                root._loadAndApplyHyprlandColors();
         }
         function onBackendError(area, message) {
             root.lastError = message;
@@ -314,8 +323,9 @@ Singleton {
         currentThemeName = themeName;
         setState("theme.name", themeName);
 
-        // 4. Apply to Hyprland
-        _applyHyprland(data.hyprland);
+        // 4. Apply compositor-specific colors only in Hyprland sessions
+        if (root.hyprlandSessionAvailable)
+            _applyHyprland(data.hyprland);
 
         // (Kitty theme management is disabled - user has custom theme)
 
@@ -329,10 +339,16 @@ Singleton {
         _applyGtkFromPalette(data.palette);
         _applyQtFromPalette(data.palette);
 
+        // 9. Reload swaync CSS so it picks up the new GTK named colors
+        _reloadSwaync();
+
         console.log("[ThemeService] Theme applied:", data.name || themeName);
     }
 
     function _applyHyprland(hyprColors) {
+        if (!root.hyprlandSessionAvailable)
+            return;
+
         if (!hyprColors)
             return;
 
@@ -498,10 +514,6 @@ Singleton {
             lines.push("");
         }
 
-        lines.push("[General]");
-        lines.push("ColorScheme=Lyne");
-        lines.push("Name=Lyne");
-        lines.push("");
         lines.push("[WM]");
         lines.push("activeBackground=" + s0);
         lines.push("activeBlend=" + bg);
@@ -511,8 +523,17 @@ Singleton {
         lines.push("inactiveForeground=" + muted);
         lines.push("");
 
+        lines.push("[General]");
+        lines.push("ColorScheme=Lyne");
+        lines.push("Name=Lyne");
+        lines.push("");
+
         const content = lines.join("\n");
-        ThemeBackendService.writeQtColors(qtColorSchemePath, content);
+        ThemeBackendService.writeQtColors(
+            qtColorSchemePath, content,
+            qt5ctConfPath, qt6ctConfPath,
+            kdeglobalsPath
+        );
     }
 
     function hexToRgb(hex) {
@@ -532,5 +553,26 @@ Singleton {
             shadowColor: palette.background ? palette.background.substring(1) + "cc" : "1a1b26cc"
         };
         root._applyHyprland(hyprColors);
+    }
+
+    // ========================================================================
+    // SWAYNC RELOAD
+    // ========================================================================
+
+    function _reloadSwaync() {
+        _swayncReloadTimer.restart();
+    }
+
+    // Small delay so GTK colors.css is fully written before swaync re-reads
+    Timer {
+        id: _swayncReloadTimer
+        interval: 500
+        repeat: false
+        onTriggered: _swayncReloadProc.running = true
+    }
+
+    Process {
+        id: _swayncReloadProc
+        command: ["swaync-client", "--reload-css"]
     }
 }

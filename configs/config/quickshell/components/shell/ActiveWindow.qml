@@ -2,16 +2,19 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Layouts
-import Quickshell.Hyprland
+import Quickshell
+import Quickshell.Io
 import qs.config
 
 Item {
     id: root
 
     property int maxWidth: 400
-    readonly property string rawWindowTitle: Hyprland.activeToplevel?.title ?? ""
     property string windowTitle: ""
     readonly property bool windowExists: windowTitle !== ""
+    readonly property bool niriSessionAvailable: (Quickshell.env("NIRI_SOCKET") || "") !== ""
+    readonly property bool hyprlandSessionAvailable: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "") !== ""
+    readonly property string compositorBackend: niriSessionAvailable ? "niri" : (hyprlandSessionAvailable ? "hyprland" : "")
 
     function sanitizeWindowTitle(title) {
         return (title || "")
@@ -20,14 +23,20 @@ Item {
             .trim();
     }
 
-    function syncWindowTitle() {
-        const nextTitle = sanitizeWindowTitle(rawWindowTitle);
+    function syncWindowTitle(title) {
+        const nextTitle = sanitizeWindowTitle(title);
         if (windowTitle !== nextTitle)
             windowTitle = nextTitle;
     }
 
-    onRawWindowTitleChanged: titleSyncTimer.restart()
-    Component.onCompleted: syncWindowTitle()
+    function refreshFocusedWindow() {
+        if (root.compositorBackend !== "" && !_focusedWindowProc.running)
+            _focusedWindowProc.running = true;
+    }
+
+    Component.onCompleted: {
+        refreshFocusedWindow();
+    }
 
     implicitWidth: windowExists ? Math.min(titleText.implicitWidth + (Config.padding * 2), maxWidth) : 0
     implicitHeight: content.implicitHeight
@@ -42,9 +51,41 @@ Item {
     }
     Timer {
         id: titleSyncTimer
-        interval: 120
-        repeat: false
-        onTriggered: root.syncWindowTitle()
+        interval: 450
+        running: true
+        repeat: true
+        onTriggered: root.refreshFocusedWindow()
+    }
+
+    Process {
+        id: _focusedWindowProc
+        command: root.compositorBackend === "niri" ? ["niri", "msg", "-j", "focused-window"]
+            : root.compositorBackend === "hyprland" ? ["hyprctl", "activewindow", "-j"]
+            : []
+        property string _buf: ""
+
+        stdout: SplitParser {
+            onRead: data => _focusedWindowProc._buf += data
+        }
+
+        onStarted: _buf = ""
+
+        onExited: exitCode => {
+            if (exitCode !== 0) {
+                root.syncWindowTitle("");
+                _buf = "";
+                return;
+            }
+
+            try {
+                const data = JSON.parse(_buf.trim());
+                root.syncWindowTitle(data?.title || data?.window?.title || "");
+            } catch (e) {
+                root.syncWindowTitle("");
+            }
+
+            _buf = "";
+        }
     }
 
     Rectangle {

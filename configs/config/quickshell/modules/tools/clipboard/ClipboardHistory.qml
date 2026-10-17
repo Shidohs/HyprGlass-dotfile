@@ -5,44 +5,68 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.services
 import qs.config
 import qs.components
 
-PanelWindow {
+Scope {
     id: root
 
-    visible: ClipboardService.visible
+    property bool visible: ClipboardService.visible
 
-    anchors {
-        top: true
-        bottom: true
-        left: true
-        right: true
-    }
+    // 1) Full-screen dim layer
+    PanelWindow {
+        id: dimLayer
+        visible: false
 
-    WlrLayershell.namespace: "qs_modules"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
 
-    color: "transparent"
+        WlrLayershell.namespace: "qs_fullscreen"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-    // Click on background closes
-    MouseArea {
-        anchors.fill: parent
-        onClicked: {
-            if (contentLoader.item)
-                contentLoader.item.forceActiveFocus();
-            ClipboardService.hide();
+        margins {
+            top: Config.barHeight
+        }
+
+        color: "transparent"
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {
+                if (contentLoader.item)
+                    contentLoader.item.forceActiveFocus();
+                ClipboardService.hide();
+            }
         }
     }
+
+    // 2) Popup layer
+    PanelWindow {
+        id: popupLayer
+        visible: root.visible
+
+        implicitWidth: contentLoader.item ? contentLoader.item.width : 520
+        implicitHeight: contentLoader.item ? contentLoader.item.height : 0
+
+        WlrLayershell.namespace: "qs_popup"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+
+        color: "transparent"
+        mask: Region {
+            item: contentLoader.item
+        }
 
     // Loader that creates/destroys the content
     Loader {
         id: contentLoader
-        anchors.centerIn: parent
-        active: ClipboardService.visible
+        active: root.visible
 
         sourceComponent: Rectangle {
             id: content
@@ -55,8 +79,8 @@ PanelWindow {
 
             height: Math.max(fixedHeight, fixedHeight + listHeight)
             radius: Config.radiusLarge
-            color: Config.backgroundTransparentColor
-            border.color: Qt.alpha(Config.accentColor, 0.2)
+            color: Config.moduleBackgroundColor
+            border.color: Config.surface2Color
             border.width: 1
 
             // Smooth height animation
@@ -258,12 +282,12 @@ PanelWindow {
                     spacing: 2
                     model: ClipboardService.filteredEntries
                     currentIndex: ClipboardService.selectedIndex
-                    
+
                     // PERFORMANCE FIX: Enable caching
                     // asynchronous: true              // Not available in this Qt version
                     cacheBuffer: 1000               // Cache items outside viewport
                     // reuseItems: true                // Qt6 - reuse delegate instances (commented - may not be available)
-                    
+
                     // Limit history warning
                     Component.onCompleted: {
                         if (ClipboardService.entries && ClipboardService.entries.length > 200) {
@@ -466,24 +490,19 @@ PanelWindow {
         }
     }
 
-    // Focus grab (deferred to avoid immediate clear race on open)
-    HyprlandFocusGrab {
-        id: focusGrab
-        windows: [root]
-        active: false
-        onCleared: ClipboardService.hide()
-    }
+    } // End of popupLayer PanelWindow
 
     Timer {
         id: focusTimer
         interval: 50
-        onTriggered: focusGrab.active = true
+        onTriggered: {
+            if (contentLoader.item)
+                contentLoader.item.forceActiveFocus();
+        }
     }
 
     onVisibleChanged: {
         if (visible)
             focusTimer.restart();
-        else
-            focusGrab.active = false;
     }
 }

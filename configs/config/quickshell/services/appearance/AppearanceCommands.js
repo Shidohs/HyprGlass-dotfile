@@ -24,7 +24,7 @@ function applyNeovimCommand(nvimThemePath, colorscheme) {
 }
 
 function applyWallpaperCommand(path) {
-    return "[ -f " + shellEscape(path) + " ] && swww img " + shellEscape(path) +
+    return "[ -f " + shellEscape(path) + " ] && awww img " + shellEscape(path) +
         " --transition-type grow --transition-duration 1 --transition-fps 60 --transition-step 90" +
         " || echo '[ThemeBackend] Wallpaper not found' >&2";
 }
@@ -45,9 +45,40 @@ function switchGtkThemeCommand(gtkThemeName, scheme) {
         "gsettings set org.gnome.desktop.interface color-scheme " + shellEscape(scheme) + " 2>/dev/null; true";
 }
 
-function writeQtColorsCommand(colorSchemesDir, qtColorSchemePath, content) {
-    return "mkdir -p " + shellEscape(colorSchemesDir) + " && " +
+function writeQtColorsCommand(colorSchemesDir, qtColorSchemePath, content, qt5ctConfPath, qt6ctConfPath, kdeglobalsPath) {
+    var cmd = "mkdir -p " + shellEscape(colorSchemesDir) + " && " +
         "cat > " + shellEscape(qtColorSchemePath) + " << 'QT_EOF'\n" + content + "\nQT_EOF";
+
+    // Update qt5ct to point to Lyne.colors and enable custom palette
+    if (qt5ctConfPath) {
+        cmd += "\n[ -f " + shellEscape(qt5ctConfPath) + " ] && " +
+            "sed -i " +
+            "'s|^color_scheme_path=.*|color_scheme_path=" + qtColorSchemePath + "|;" +
+            "s|^custom_palette=.*|custom_palette=true|' " +
+            shellEscape(qt5ctConfPath) + " || true";
+    }
+
+    // Update qt6ct to point to Lyne.colors and enable custom palette
+    if (qt6ctConfPath) {
+        cmd += "\n[ -f " + shellEscape(qt6ctConfPath) + " ] && " +
+            "sed -i " +
+            "'s|^color_scheme_path=.*|color_scheme_path=" + qtColorSchemePath + "|;" +
+            "s|^custom_palette=.*|custom_palette=true|' " +
+            shellEscape(qt6ctConfPath) + " || true";
+    }
+
+    // Merge color sections into kdeglobals using the just-written Lyne.colors file
+    if (kdeglobalsPath) {
+        cmd += "\nif [ -f " + shellEscape(kdeglobalsPath) + " ]; then " +
+            "awk 'BEGIN{s=0} /^\\[(ColorEffects|Colors):/{s=1;next} /^\\[WM\\]/{s=1;next} /^\\[/{s=0} !s{print}' " +
+            shellEscape(kdeglobalsPath) + " > " + shellEscape(kdeglobalsPath + ".tmp") +
+            " && awk '/^\\[General\\]/{s=1;next} /^\\[/{s=0} !s{print}' " +
+            shellEscape(qtColorSchemePath) + " >> " + shellEscape(kdeglobalsPath + ".tmp") +
+            " && mv " + shellEscape(kdeglobalsPath + ".tmp") + " " + shellEscape(kdeglobalsPath) +
+            "; fi";
+    }
+
+    return cmd;
 }
 
 function listSystemThemesCommand() {
@@ -88,7 +119,7 @@ function applySystemThemeCommand(unifierPath, gtkTheme, iconTheme, cursorTheme) 
         cmds.push("sed -i 's/^CURSOR_THEME=\".*\"/CURSOR_THEME=\"" + cursorTheme + "\"/' " + shellEscape(unifierPath));
     cmds.push(shellEscape(unifierPath) + " apply");
     if (cursorTheme)
-        cmds.push("hyprctl setcursor " + shellEscape(cursorTheme) + " 24");
+        cmds.push("(command -v hyprctl >/dev/null 2>&1 && hyprctl setcursor " + shellEscape(cursorTheme) + " 24) || true");
     return cmds.join(" && ");
 }
 

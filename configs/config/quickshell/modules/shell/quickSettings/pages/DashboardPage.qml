@@ -191,25 +191,14 @@ Item {
             }
 
             QuickSettingsTile {
+                Layout.columnSpan: BluetoothService.adapter === null ? 2 : 1
                 icon: PerformanceProfileService.systemIcon
                 label: "Performance"
                 subLabel: PerformanceProfileService.modeLabel
                 active: PerformanceProfileService.isPerformanceBiased
                 hasDetails: true
-                onToggled: root.navigateTo(8)  // pagePerformance
-                onOpenDetails: root.navigateTo(8)  // pagePerformance
-            }
-
-            // DND (Do Not Disturb)
-            QuickSettingsTile {
-                Layout.columnSpan: BluetoothService.adapter === null ? 2 : 1
-                icon: NotificationService.dndEnabled ? "󰂛" : "󰂚"
-                label: "Do not disturb"
-                subLabel: NotificationService.dndStatusText
-                active: NotificationService.dndEnabled
-                hasDetails: true
-                onToggled: NotificationService.toggleDnd()
-                onOpenDetails: root.navigateTo(6)  // pageDnd
+                onToggled: root.navigateTo(7)  // pagePerformance
+                onOpenDetails: root.navigateTo(7)  // pagePerformance
             }
         }
 
@@ -237,7 +226,7 @@ Item {
                     baseColor: Config.surface1Color
                     hoverColor: Config.surface2Color
                     textColor: Config.subtextColor
-                    onClicked: root.navigateTo(7)  // pageAudio
+                    onClicked: root.navigateTo(6)  // pageAudio
                 }
             }
 

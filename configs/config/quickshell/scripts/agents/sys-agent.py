@@ -6,98 +6,143 @@ import shutil
 import subprocess
 import time
 
-BASE_SAMPLE_SECONDS = 4
+BASE_SAMPLE_SECONDS = 2
 GPU_SAMPLE_MULTIPLIER = 2
+_CPU_TEMP_SENSORS = None
+_AMD_GPU_BUSY_PATHS = None
+_NET_RX_FILES = None
+_NET_TX_FILES = None
+
+
+def discover_cpu_temp_sensors():
+    sensors = []
+    for temp_path in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+        type_path = temp_path.replace("temp", "type")
+        try:
+            with open(type_path, "r") as handle:
+                tz_type = handle.read().strip()
+            if tz_type == "x86_pkg_temp" or "k10temp" in tz_type:
+                sensors.append(temp_path)
+        except OSError:
+            continue
+    return sensors
+
+
+def discover_amd_gpu_busy_paths():
+    return glob.glob("/sys/class/drm/card*/device/gpu_busy_percent")
+
+
+def discover_net_stat_files(direction):
+    files = []
+    pattern = f"/sys/class/net/*/statistics/{direction}_bytes"
+    for path in glob.glob(pattern):
+        if "lo/statistics" not in path:
+            files.append(path)
+    return files
+
 
 def get_cpu_temp():
-    temp_files = glob.glob("/sys/class/thermal/thermal_zone*/temp")
+    global _CPU_TEMP_SENSORS
+    if _CPU_TEMP_SENSORS is None:
+        _CPU_TEMP_SENSORS = discover_cpu_temp_sensors()
+
     max_temp = 0
-    for file in temp_files:
-        type_file = file.replace("temp", "type")
-        if os.path.exists(type_file):
-            try:
-                with open(type_file, "r") as f:
-                    tz_type = f.read().strip()
-                if tz_type == "x86_pkg_temp" or "k10temp" in tz_type:
-                    with open(file, "r") as f:
-                        t = int(f.read().strip())
-                        if t > max_temp:
-                            max_temp = t
-            except:
-                pass
+    for temp_path in _CPU_TEMP_SENSORS:
+        try:
+            with open(temp_path, "r") as handle:
+                temp_value = int(handle.read().strip())
+            if temp_value > max_temp:
+                max_temp = temp_value
+        except OSError:
+            continue
     return int(max_temp / 1000) if max_temp > 0 else 0
+
 
 def has_nvidia_smi():
     return shutil.which("nvidia-smi") is not None
 
 
 def get_gpu_info(nvidia_available=None):
+    global _AMD_GPU_BUSY_PATHS
     usage, temp = 0, 0
     try:
         # Check NVIDIA
         if nvidia_available is None:
             nvidia_available = has_nvidia_smi()
         if nvidia_available:
-            out = subprocess.check_output(["nvidia-smi", "--query-gpu=utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"], universal_newlines=True)
+            out = subprocess.check_output(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                universal_newlines=True,
+            )
             parts = [p.strip() for p in out.split(",")]
             if len(parts) >= 2:
                 usage = int(parts[0])
                 temp = int(parts[1])
             return "nvidia", usage, temp
-            
+
         # Check AMD
-        gpu_stat_dir = glob.glob("/sys/class/drm/card*/device/gpu_busy_percent")
-        if gpu_stat_dir:
-            for path in gpu_stat_dir:
+        if _AMD_GPU_BUSY_PATHS is None:
+            _AMD_GPU_BUSY_PATHS = discover_amd_gpu_busy_paths()
+        if _AMD_GPU_BUSY_PATHS:
+            for path in _AMD_GPU_BUSY_PATHS:
                 try:
-                    with open(path, "r") as f:
-                        usage = int(f.read().strip())
+                    with open(path, "r") as handle:
+                        usage = int(handle.read().strip())
                     hwmon_dir = os.path.dirname(os.path.dirname(path)) + "/hwmon/hwmon*"
                     temp_paths = glob.glob(hwmon_dir + "/temp1_input")
                     if temp_paths:
-                        with open(temp_paths[0], "r") as f:
-                            temp = int(int(f.read().strip()) / 1000)
+                        with open(temp_paths[0], "r") as handle:
+                            temp = int(int(handle.read().strip()) / 1000)
                     return "amd", usage, temp
-                except:
-                    pass
-    except:
+                except OSError:
+                    continue
+    except Exception:
         pass
     return "unknown", 0, 0
 
+
 def read_cpu_stat():
     try:
-        with open("/proc/stat", "r") as f:
-            lines = f.readlines()
-            for line in lines:
-                if line.startswith("cpu "):
-                    parts = line.split()
-                    user, nice, system, idle, iowait, irq, softirq, steal = map(int, parts[1:9])
-                    total = user + nice + system + idle + iowait + irq + softirq + steal
-                    idle_total = idle + iowait
-                    return total, idle_total
-    except:
+        with open("/proc/stat", "r") as handle:
+            line = handle.readline()
+        if line.startswith("cpu "):
+            parts = line.split()
+            user, nice, system, idle, iowait, irq, softirq, steal = map(
+                int, parts[1:9]
+            )
+            total = user + nice + system + idle + iowait + irq + softirq + steal
+            idle_total = idle + iowait
+            return total, idle_total
+    except OSError:
         pass
     return 0, 0
 
+
 def get_ram_info():
     try:
-        with open("/proc/meminfo", "r") as f:
-            lines = f.readlines()
+        with open("/proc/meminfo", "r") as handle:
             mem_total = 0
             mem_avail = 0
-            for line in lines:
+            for line in handle:
                 parts = line.split()
                 if line.startswith("MemTotal:"):
                     mem_total = int(parts[1]) * 1024
                 elif line.startswith("MemAvailable:"):
                     mem_avail = int(parts[1]) * 1024
+                if mem_total and mem_avail:
+                    break
             if mem_total > 0:
                 used = mem_total - mem_avail
                 percent = int((used / mem_total) * 100)
                 return percent, used, mem_total
-    except:
+    except OSError:
         pass
     return 0, 0, 0
+
 
 def get_disk_info():
     try:
@@ -111,37 +156,42 @@ def get_disk_info():
         pass
     return 0, 0, 0
 
+
 def get_net_bytes():
+    global _NET_RX_FILES, _NET_TX_FILES
+    if _NET_RX_FILES is None:
+        _NET_RX_FILES = discover_net_stat_files("rx")
+    if _NET_TX_FILES is None:
+        _NET_TX_FILES = discover_net_stat_files("tx")
+
     rx = 0
     tx = 0
     try:
-        for iface in glob.glob("/sys/class/net/*/statistics/rx_bytes"):
-            if "lo/statistics" in iface:
-                continue
-            with open(iface, "r") as f:
-                rx += int(f.read().strip())
-        for iface in glob.glob("/sys/class/net/*/statistics/tx_bytes"):
-            if "lo/statistics" in iface:
-                continue
-            with open(iface, "r") as f:
-                tx += int(f.read().strip())
-    except:
+        for path in _NET_RX_FILES:
+            with open(path, "r") as handle:
+                rx += int(handle.read().strip())
+        for path in _NET_TX_FILES:
+            with open(path, "r") as handle:
+                tx += int(handle.read().strip())
+    except OSError:
         pass
     return rx, tx
 
+
 def get_uptime():
     try:
-        with open("/proc/uptime", "r") as f:
-            uptime = float(f.read().split()[0])
+        with open("/proc/uptime", "r") as handle:
+            uptime = float(handle.read().split()[0])
             hours = int(uptime // 3600)
             minutes = int((uptime % 3600) // 60)
             if hours > 0:
                 return f"{hours}h {minutes}m"
             else:
                 return f"{minutes}m"
-    except:
+    except OSError:
         pass
     return "0m"
+
 
 def compute_cpu_usage(prev_total, prev_idle, total_cpu, idle_cpu):
     diff_total = total_cpu - prev_total
@@ -158,73 +208,64 @@ def compute_net_rates(prev_rx, prev_tx, rx, tx, elapsed):
     return rx_rate, tx_rate
 
 
-def build_snapshot(prev_total_cpu, prev_idle_cpu, prev_rx, prev_tx, last_time, gpu_state, tick, nvidia_available):
-    current_time = time.time()
-    elapsed = current_time - last_time
-
-    total_cpu, idle_cpu = read_cpu_stat()
-    cpu_usage = compute_cpu_usage(prev_total_cpu, prev_idle_cpu, total_cpu, idle_cpu)
-    cpu_temp = get_cpu_temp()
-
-    ram_percent, ram_used, ram_total = get_ram_info()
-    disk_percent, disk_used, disk_total = get_disk_info()
-
-    rx, tx = get_net_bytes()
-    rx_rate, tx_rate = compute_net_rates(prev_rx, prev_tx, rx, tx, elapsed)
-
-    gpu_type, gpu_usage, gpu_temp = gpu_state
-    if tick % GPU_SAMPLE_MULTIPLIER == 0:
-        gpu_type, gpu_usage, gpu_temp = get_gpu_info(nvidia_available=nvidia_available)
-
-    data = {
-        "cpu": {"usage": cpu_usage, "temp": cpu_temp},
-        "gpu": {"type": gpu_type, "usage": gpu_usage, "temp": gpu_temp},
-        "ram": {"usage": ram_percent, "used": ram_used, "total": ram_total},
-        "disk": {"usage": disk_percent, "used": disk_used, "total": disk_total},
-        "network": {"rx": rx_rate, "tx": tx_rate},
-        "uptime": get_uptime()
-    }
-
-    return {
-        "data": data,
-        "prev_total_cpu": total_cpu,
-        "prev_idle_cpu": idle_cpu,
-        "prev_rx": rx,
-        "prev_tx": tx,
-        "last_time": current_time,
-        "gpu_state": (gpu_type, gpu_usage, gpu_temp),
-    }
-
-
 def main():
     prev_total_cpu, prev_idle_cpu = read_cpu_stat()
     prev_rx, prev_tx = get_net_bytes()
-    last_time = time.time()
+    last_net_time = time.monotonic()
+
     nvidia_available = has_nvidia_smi()
     gpu_state = get_gpu_info(nvidia_available=nvidia_available)
+
+    disk_state = get_disk_info()
+    uptime_state = get_uptime()
+    net_rates = (0, 0)
+
     tick = 0
+    first_run = True
 
     while True:
-        time.sleep(BASE_SAMPLE_SECONDS)
+        if first_run:
+            time.sleep(0.5)
+            first_run = False
+        else:
+            time.sleep(BASE_SAMPLE_SECONDS)
         tick += 1
-        snapshot = build_snapshot(
-            prev_total_cpu,
-            prev_idle_cpu,
-            prev_rx,
-            prev_tx,
-            last_time,
-            gpu_state,
-            tick,
-            nvidia_available,
-        )
-        prev_total_cpu = snapshot["prev_total_cpu"]
-        prev_idle_cpu = snapshot["prev_idle_cpu"]
-        prev_rx = snapshot["prev_rx"]
-        prev_tx = snapshot["prev_tx"]
-        last_time = snapshot["last_time"]
-        gpu_state = snapshot["gpu_state"]
-        print(json.dumps(snapshot["data"]), flush=True)
 
+        total_cpu, idle_cpu = read_cpu_stat()
+        cpu_usage = compute_cpu_usage(prev_total_cpu, prev_idle_cpu, total_cpu, idle_cpu)
+        cpu_temp = get_cpu_temp()
+        prev_total_cpu = total_cpu
+        prev_idle_cpu = idle_cpu
+
+        ram_percent, ram_used, ram_total = get_ram_info()
+
+        if tick == 1 or tick % 2 == 0:
+            current_time = time.monotonic()
+            rx, tx = get_net_bytes()
+            elapsed = current_time - last_net_time
+            if elapsed <= 0:
+                elapsed = 1
+            net_rates = compute_net_rates(prev_rx, prev_tx, rx, tx, elapsed)
+            prev_rx = rx
+            prev_tx = tx
+            last_net_time = current_time
+
+            disk_state = get_disk_info()
+            uptime_state = get_uptime()
+
+        if tick == 1 or tick % 4 == 0:
+            gpu_state = get_gpu_info(nvidia_available=nvidia_available)
+
+        data = {
+            "cpu": {"usage": cpu_usage, "temp": cpu_temp},
+            "gpu": {"type": gpu_state[0], "usage": gpu_state[1], "temp": gpu_state[2]},
+            "ram": {"usage": ram_percent, "used": ram_used, "total": ram_total},
+            "disk": {"usage": disk_state[0], "used": disk_state[1], "total": disk_state[2]},
+            "network": {"rx": net_rates[0], "tx": net_rates[1]},
+            "uptime": uptime_state,
+        }
+
+        print(json.dumps(data, separators=(",", ":")), flush=True)
 
 if __name__ == "__main__":
     main()

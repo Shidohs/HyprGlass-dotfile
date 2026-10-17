@@ -37,6 +37,10 @@ Singleton {
     property string currentCategory: "all" // "all" | "favorites" | "themes"
     property string themeFilter: "" // specific theme name when browsing theme wallpapers
     property var favorites: getState("wallpaper.favorites", [])
+    property double _lastRefreshAt: 0
+    property var _fileNameCache: ({})
+    property var _displayNameCache: ({})
+    property var _searchNameCache: ({})
 
     // Theme wallpapers (files inside themes/{themeName}/)
     property var themeWallpapers: []
@@ -51,18 +55,43 @@ Singleton {
     readonly property string themeWallpaperDir: wallpaperDir + "/themes"
     readonly property string themesConfigDir: Quickshell.env("HOME") + "/.local/themes"
     readonly property int selectedCount: selectedWallpapers.length
+    readonly property int refreshCooldownMs: 30000
+    readonly property var favoritesLookup: {
+        const lookup = ({});
+        const favs = favorites || [];
+        for (let i = 0; i < favs.length; i++)
+            lookup[favs[i]] = true;
+        return lookup;
+    }
+    readonly property var selectedLookup: {
+        const lookup = ({});
+        const selected = selectedWallpapers || [];
+        for (let i = 0; i < selected.length; i++)
+            lookup[selected[i]] = true;
+        return lookup;
+    }
 
     // Active wallpaper paths per theme (for the Themes overview)
     readonly property var activeThemeWallpapers: {
         const result = [];
+        const fullPathByTheme = root.activeThemeWallpaperByTheme;
+        const themes = ThemeService.availableThemes;
+        for (let i = 0; i < themes.length; i++) {
+            const fullPath = fullPathByTheme[themes[i]];
+            if (fullPath)
+                result.push(fullPath);
+        }
+        return result;
+    }
+    readonly property var activeThemeWallpaperByTheme: {
+        const result = ({});
         const themes = ThemeService.availableThemes;
         const previews = ThemeService.themePreviews;
         for (let i = 0; i < themes.length; i++) {
             const name = themes[i];
             const preview = previews[name];
-            if (preview && preview.wallpaper) {
-                result.push(wallpaperDir + "/" + preview.wallpaper);
-            }
+            if (preview && preview.wallpaper)
+                result[name] = wallpaperDir + "/" + preview.wallpaper;
         }
         return result;
     }
@@ -77,27 +106,25 @@ Singleton {
         } else if (currentCategory === "themes") {
             // Overview: return theme names (delegate resolves to wallpaper paths)
             const themes = ThemeService.availableThemes;
-            const previews = ThemeService.themePreviews;
             list = [];
             for (let i = 0; i < themes.length; i++) {
-                const preview = previews[themes[i]];
-                if (preview && preview.wallpaper)
+                if (root.activeThemeWallpaperByTheme[themes[i]])
                     list.push(themes[i]);
             }
         } else {
             list = root.wallpapers;
 
             if (currentCategory === "favorites")
-                list = list.filter(w => favorites.includes(relativePath(w)));
+                list = list.filter(w => !!favoritesLookup[relativePath(w)]);
         }
 
         // Search filter
         if (searchQuery) {
-            const q = searchQuery.toLowerCase();
+            const q = searchQuery.trim().toLowerCase();
             if (currentCategory === "themes" && !themeFilter)
                 list = list.filter(t => t.toLowerCase().includes(q));
             else
-                list = list.filter(w => fileName(w).toLowerCase().includes(q));
+                list = list.filter(w => searchName(w).includes(q));
         }
 
         return list;
@@ -125,13 +152,56 @@ Singleton {
         }
     }
 
+    onWallpapersChanged: root._resetPathCaches()
+    onThemeWallpapersChanged: root._resetPathCaches()
+
     // ========================================================================
     // PUBLIC FUNCTIONS
     // ========================================================================
 
+    function _resetPathCaches() {
+        _fileNameCache = ({});
+        _displayNameCache = ({});
+        _searchNameCache = ({});
+    }
+
     // Utility
     function fileName(path) {
-        return path.split("/").pop();
+        const key = String(path || "");
+        if (key === "")
+            return "";
+        if (_fileNameCache[key] !== undefined)
+            return _fileNameCache[key];
+
+        const result = key.split("/").pop();
+        _fileNameCache[key] = result;
+        return result;
+    }
+
+    function displayName(path) {
+        const key = String(path || "");
+        if (key === "")
+            return "";
+        if (_displayNameCache[key] !== undefined)
+            return _displayNameCache[key];
+
+        const name = fileName(key);
+        const dot = name.lastIndexOf(".");
+        const result = dot > 0 ? name.substring(0, dot) : name;
+        _displayNameCache[key] = result;
+        return result;
+    }
+
+    function searchName(path) {
+        const key = String(path || "");
+        if (key === "")
+            return "";
+        if (_searchNameCache[key] !== undefined)
+            return _searchNameCache[key];
+
+        const result = fileName(key).toLowerCase();
+        _searchNameCache[key] = result;
+        return result;
     }
 
     function relativePath(path) {
@@ -152,7 +222,7 @@ Singleton {
     }
 
     function isFavorite(path) {
-        return favorites.includes(relativePath(path));
+        return !!favoritesLookup[relativePath(path)];
     }
 
     // Theme wallpaper detection (old theme-{name}.jpg in root dir)
@@ -195,13 +265,12 @@ Singleton {
     // Get the active wallpaper filename for a theme from its JSON
     // Get which theme a wallpaper is active for (from overview list)
     function themeForActiveWallpaper(wallpaperPath) {
-        const relativePath = wallpaperPath.replace(wallpaperDir + "/", "");
+        const activeByTheme = root.activeThemeWallpaperByTheme;
         const themes = ThemeService.availableThemes;
-        const previews = ThemeService.themePreviews;
         for (let i = 0; i < themes.length; i++) {
-            const preview = previews[themes[i]];
-            if (preview && preview.wallpaper === relativePath)
-                return themes[i];
+            const themeName = themes[i];
+            if (activeByTheme[themeName] === wallpaperPath)
+                return themeName;
         }
         return "";
     }
@@ -215,14 +284,11 @@ Singleton {
     }
 
     function themeWallpaperPath(themeName) {
-        const rel = getThemeActiveWallpaper(themeName);
-        return rel ? wallpaperDir + "/" + rel : "";
+        return activeThemeWallpaperByTheme[themeName] || "";
     }
 
     function isActiveThemeWallpaper(wallpaperPath, themeName) {
-        const relativePath = wallpaperPath.replace(wallpaperDir + "/", "");
-        const activeWallpaper = getThemeActiveWallpaper(themeName);
-        return relativePath === activeWallpaper;
+        return themeWallpaperPath(themeName) === wallpaperPath;
     }
 
     function toggleDynamicWallpaper() {
@@ -231,7 +297,8 @@ Singleton {
     }
 
     function show() {
-        refreshWallpapers();
+        if (wallpapers.length === 0 || (Date.now() - _lastRefreshAt) > refreshCooldownMs)
+            refreshWallpapers();
         selectedWallpapers = [];
         confirmDelete = false;
         searchQuery = "";
@@ -256,7 +323,7 @@ Singleton {
 
     // Selection
     function isSelected(path) {
-        return selectedWallpapers.includes(path);
+        return !!selectedLookup[path];
     }
 
     function toggleSelection(path) {
@@ -368,6 +435,9 @@ Singleton {
     }
 
     function refreshWallpapers() {
+        if (listWallpapersProc.running)
+            return;
+        _lastRefreshAt = Date.now();
         listWallpapersProc.running = true;
     }
 
@@ -407,7 +477,11 @@ Singleton {
             }
         }
         onStarted: listWallpapersProc._buffer = []
-        onExited: root.wallpapers = listWallpapersProc._buffer
+        onExited: {
+            const nextWallpapers = listWallpapersProc._buffer;
+            if (JSON.stringify(root.wallpapers) !== JSON.stringify(nextWallpapers))
+                root.wallpapers = nextWallpapers;
+        }
     }
 
     Process {
@@ -423,12 +497,16 @@ Singleton {
             }
         }
         onStarted: listThemeWallpapersProc._buffer = []
-        onExited: root.themeWallpapers = listThemeWallpapersProc._buffer
+        onExited: {
+            const nextWallpapers = listThemeWallpapersProc._buffer;
+            if (JSON.stringify(root.themeWallpapers) !== JSON.stringify(nextWallpapers))
+                root.themeWallpapers = nextWallpapers;
+        }
     }
 
     Process {
         id: getCurrentProc
-        command: ["swww", "query"]
+        command: ["awww", "query"]
         stdout: SplitParser {
             onRead: data => {
                 const match = data.match(/image:\s*(.+)/);

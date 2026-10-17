@@ -10,6 +10,8 @@ import "./AppearanceCommands.js" as AppearanceCommands
 Singleton {
     id: root
 
+    readonly property bool hyprlandSessionAvailable: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "") !== ""
+
     // Signals
     signal themeLoaded(string themeName, var data)
     signal pairSchemeLoaded(string pairName)
@@ -59,8 +61,11 @@ Singleton {
     }
 
     // Side Effects API
-    
+
     function applyHyprland(cmds) {
+        if (!root.hyprlandSessionAvailable)
+            return;
+
         if (cmds.length > 0) {
             hyprProc.command = ["bash", "-c", AppearanceCommands.applyHyprlandCommand(cmds)];
             hyprProc.running = true;
@@ -93,12 +98,15 @@ Singleton {
         gtkThemeSwitchProc.running = true;
     }
 
-    function writeQtColors(qtColorSchemePath, content) {
+    function writeQtColors(qtColorSchemePath, content, qt5ctConfPath, qt6ctConfPath, kdeglobalsPath) {
         qtProc.command = ["bash", "-c",
             AppearanceCommands.writeQtColorsCommand(
                 Quickshell.env("HOME") + "/.local/share/color-schemes",
                 qtColorSchemePath,
-                content
+                content,
+                qt5ctConfPath,
+                qt6ctConfPath,
+                kdeglobalsPath
             )];
         qtProc.running = true;
     }
@@ -189,7 +197,7 @@ Singleton {
                         pairName = data.lightPair;
                     else if (_targetScheme === "dark" && data.darkPair)
                         pairName = data.darkPair;
-                    
+
                     root.pairSchemeLoaded(pairName);
                 } catch (e) {
                     console.error("[ThemeBackend] Failed to read pair:", e);
@@ -238,7 +246,7 @@ Singleton {
                 if (nameMatch === -1) continue;
                 var nameEnd = chunk.indexOf("---", nameMatch + 14);
                 if (nameEnd === -1) continue;
-                
+
                 var themeName = chunk.substring(nameMatch + 14, nameEnd).trim();
                 var jsonStr = chunk.substring(nameEnd + 3).trim();
 
@@ -267,6 +275,8 @@ Singleton {
         id: hyprProc
         stderr: SplitParser { onRead: data => console.error("[ThemeBackend:Hyprland] " + data) }
         onExited: exitCode => {
+            if (!root.hyprlandSessionAvailable)
+                return;
             if (exitCode !== 0)
                 root.backendError("hyprland", "No se pudo aplicar la paleta a Hyprland.");
         }

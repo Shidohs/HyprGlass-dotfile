@@ -1,0 +1,13 @@
+---
+- name: HyprGlass System Setup
+  hosts: localhost
+  become: false
+  gather_facts: true
+
+  roles:
+    - packages
+    - dotfiles
+    - zsh
+    - theming
+    # sddm needs sudo, so we handle it with privilege escalation inside the role
+    - sddm

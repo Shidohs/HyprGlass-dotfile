@@ -1,0 +1,54 @@
+---
+- name: Ensure ~/.config exists
+  file:
+    path: "{{ ansible_env.HOME }}/.config"
+    state: directory
+    mode: '0755'
+
+- name: Find all items in configs/config
+  find:
+    paths: "{{ playbook_dir }}/../configs/config"
+    file_type: directory
+    depth: 1
+  register: config_dirs
+
+- name: Symlink config directories to ~/.config/
+  file:
+    src: "{{ item.path }}"
+    dest: "{{ ansible_env.HOME }}/.config/{{ item.path | basename }}"
+    state: link
+    force: yes
+  loop: "{{ config_dirs.files }}"
+
+- name: Find all items in configs/home
+  find:
+    paths: "{{ playbook_dir }}/../configs/home"
+    file_type: any
+    hidden: yes
+    depth: 1
+  register: home_files
+
+- name: Symlink home files to ~/
+  file:
+    src: "{{ item.path }}"
+    dest: "{{ ansible_env.HOME }}/{{ item.path | basename }}"
+    state: link
+    force: yes
+  loop: "{{ home_files.files }}"
+  when: item.path | basename != '.' and item.path | basename != '..'
+
+- name: Ensure ~/.local/bin exists
+  file:
+    path: "{{ ansible_env.HOME }}/.local/bin"
+    state: directory
+    mode: '0755'
+
+- name: Install Glass Launcher binaries
+  copy:
+    src: "{{ playbook_dir }}/../launcher/bin/{{ item }}"
+    dest: "{{ ansible_env.HOME }}/.local/bin/{{ item }}"
+    mode: '0755'
+  loop:
+    - launcher
+    - launcher-ctl
+  ignore_errors: yes

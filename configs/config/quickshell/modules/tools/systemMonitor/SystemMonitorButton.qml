@@ -11,7 +11,7 @@ BarButton {
     active: monitorWindow.visible
     contentItem: buttonContent
     onClicked: {
-        pulseAnimation.start()
+        pulseAnimation.restart()
         monitorWindow.visible = !monitorWindow.visible
     }
 

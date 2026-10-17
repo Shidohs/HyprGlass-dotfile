@@ -166,6 +166,27 @@ Singleton {
 
     Component.onCompleted: refresh()
 
+    // ── NATIVE EVENT SUBSCRIPTION (NO POLLING) ──
+    Process {
+        id: tunedMonitorProc
+        command: ["gdbus", "monitor", "--system", "--dest", "com.redhat.tuned", "--object-path", "/Tuned"]
+        running: true
+        
+        stdout: SplitParser {
+            onRead: data => {
+                if (data && data.indexOf("profile_changed") !== -1) {
+                    refreshDebounce.restart();
+                }
+            }
+        }
+    }
+
+    Timer {
+        id: refreshDebounce
+        interval: 1000
+        onTriggered: root.refreshCurrentState()
+    }
+
     Process {
         id: activeProfileProc
         command: [

@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.config
 import qs.services
 
@@ -68,13 +67,6 @@ PanelWindow {
     }
 
     // --- FOCUS AND CLOSING ---
-    HyprlandFocusGrab {
-        id: focusGrab
-        windows: [root]
-        active: false
-        onCleared: root.close()
-    }
-
     function open() {
         root.visible = true;
         focusTimer.restart();
@@ -83,14 +75,12 @@ PanelWindow {
     function close() {
         root.visible = false;
         menuStack.clear(); // Resets navigation on close
-        focusGrab.active = false;
     }
 
     Timer {
         id: focusTimer
         interval: 50
         onTriggered: {
-            focusGrab.active = true;
             background.forceActiveFocus();
         }
     }

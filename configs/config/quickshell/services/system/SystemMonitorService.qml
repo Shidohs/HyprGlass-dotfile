@@ -104,7 +104,18 @@ Singleton {
     property bool monitorActive: false
 
     onMonitorActiveChanged: {
-        sysAgent.running = monitorActive;
+        if (monitorActive) {
+            stopTimer.stop();
+            sysAgent.running = true;
+        } else {
+            stopTimer.restart();
+        }
+    }
+
+    Timer {
+        id: stopTimer
+        interval: 3000 // Keep running for 3 seconds after close to prevent spawn/kill loops
+        onTriggered: sysAgent.running = false
     }
 
     Process {

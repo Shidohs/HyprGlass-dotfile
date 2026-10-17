@@ -1,30 +1,46 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# HyprGlass - Quickshell & Bar Launcher with Waybar Fallback
 
-# Archivo de log
-LOG_FILE="$HOME/.local/share/hyprland/logs/quickshell.log"
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+
+if [[ -f "$LIB_DIR/logging.sh" ]]; then
+    source "$LIB_DIR/logging.sh"
+else
+    log_info() { echo "[INFO] $1"; }
+    log_warn() { echo "[WARN] $1"; }
+    log_error() { echo "[ERROR] $1"; }
+fi
+
+LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/hypr/logs/bar.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-{
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting quickshell script"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] User: $USER, Home: $HOME"
-    
-    # Variables Qt/Wayland ya inyectadas por Hyprland (env = en config/15-environment.conf
-    # y config/10-theme-unifier-env.conf). No re-exportar aquí para evitar tres fuentes de verdad.
+launch_bar() {
+    log_info "Initializing desktop panel / status bar..."
 
-    # Kill any existing quickshell instance
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing existing quickshell instances"
-    pkill -x quickshell
-    
-    # Wait a moment to ensure clean shutdown
-    sleep 0.5
-    
-    # Check if quickshell command exists
-    if ! command -v quickshell &> /dev/null; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: quickshell command not found"
+    # Kill existing instances of quickshell and waybar
+    pkill -x quickshell 2>/dev/null || true
+    pkill -x waybar 2>/dev/null || true
+    sleep 0.3
+
+    if command -v quickshell >/dev/null 2>&1; then
+        log_info "Starting Quickshell bar..."
+        exec quickshell "$@"
+    elif command -v waybar >/dev/null 2>&1; then
+        log_warn "Quickshell not found. Falling back to Waybar..."
+        exec waybar "$@"
+    else
+        log_error "Neither Quickshell nor Waybar is installed on the system."
+        if command -v notify-send >/dev/null 2>&1; then
+            notify-send -u critical "HyprGlass Error" "Neither Quickshell nor Waybar is installed!"
+        fi
         exit 1
     fi
-    
-    # Start quickshell
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting quickshell from: $(which quickshell)"
-    quickshell "$@"
-} 2>&1 | tail -c 10M >> "$LOG_FILE"
+}
+
+{
+    echo "=== Bar Launcher Started [$(date '+%Y-%m-%d %H:%M:%S')] ==="
+    launch_bar "$@"
+} >> "$LOG_FILE" 2>&1

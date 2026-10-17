@@ -1,0 +1,33 @@
+[package]
+name = "launcher"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "launcher"
+path = "src/main.rs"
+
+[[bin]]
+name = "launcher-ctl"
+path = "src/bin/ctl.rs"
+
+[dependencies]
+gtk4 = "0.11"
+gtk4-layer-shell = "0.8"
+fuzzy-matcher = "0.3"
+dirs = "6.0"
+walkdir = "2.5"
+glib = "0.22"
+gio = "0.22"
+gdk4 = "0.11"
+libc = "0.2"
+async-channel = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

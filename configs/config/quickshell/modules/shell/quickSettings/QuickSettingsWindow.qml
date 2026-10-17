@@ -21,7 +21,6 @@ QsPopupWindow {
         bluetoothLoader,
         nightLightLoader,
         themeLoader,
-        dndLoader,
         audioLoader,
         performanceLoader
     ]
@@ -34,9 +33,8 @@ QsPopupWindow {
     readonly property int pageBluetooth: 3
     readonly property int pageNightLight: 4
     readonly property int pageTheme: 5
-    readonly property int pageDnd: 6
-    readonly property int pageAudio: 7
-    readonly property int pagePerformance: 8
+    readonly property int pageAudio: 6
+    readonly property int pagePerformance: 7
 
     function pageIndexForName(pageName) {
         switch (pageName) {
@@ -50,8 +48,6 @@ QsPopupWindow {
             return pageNightLight;
         case "theme":
             return pageTheme;
-        case "dnd":
-            return pageDnd;
         case "audio":
             return pageAudio;
         case "performance":
@@ -96,7 +92,9 @@ QsPopupWindow {
         // ==========================
         Loader {
             id: dashboardLoader
-            active: root.visible && pageStack.currentIndex === root.pageDashboard
+            active: true // Always active to keep it ready after first load
+            visible: pageStack.currentIndex === root.pageDashboard
+            asynchronous: true
             sourceComponent: DashboardPage {
                 onCloseWindow: root.closeWindow()
                 onNavigateTo: page => pageStack.currentIndex = page
@@ -108,7 +106,8 @@ QsPopupWindow {
         // ==========================
         Loader {
             id: wifiLoader
-            active: root.visible && pageStack.currentIndex === root.pageWifi
+            active: pageStack.currentIndex === root.pageWifi
+            asynchronous: true
             sourceComponent: WifiPage {
                 onBackRequested: pageStack.currentIndex = root.pageDashboard
                 onPasswordRequested: ssid => {
@@ -139,7 +138,8 @@ QsPopupWindow {
         // ==========================
         Loader {
             id: bluetoothLoader
-            active: root.visible && pageStack.currentIndex === root.pageBluetooth
+            active: pageStack.currentIndex === root.pageBluetooth
+            asynchronous: true
             sourceComponent: BluetoothPage {
                 onBackRequested: pageStack.currentIndex = root.pageDashboard
             }
@@ -150,7 +150,8 @@ QsPopupWindow {
         // ==========================
         Loader {
             id: nightLightLoader
-            active: root.visible && pageStack.currentIndex === root.pageNightLight
+            active: pageStack.currentIndex === root.pageNightLight
+            asynchronous: true
             sourceComponent: NightLightPage {
                 onBackRequested: pageStack.currentIndex = root.pageDashboard
             }
@@ -161,40 +162,34 @@ QsPopupWindow {
         // ==========================
         Loader {
             id: themeLoader
-            active: root.visible && pageStack.currentIndex === root.pageTheme
+            active: pageStack.currentIndex === root.pageTheme
+            asynchronous: true
             sourceComponent: ThemePage {
                 onBackRequested: pageStack.currentIndex = root.pageDashboard
             }
         }
 
-        // ==========================
-        // PAGE 6: DO NOT DISTURB
-        // ==========================
-        Loader {
-            id: dndLoader
-            active: root.visible && pageStack.currentIndex === root.pageDnd
-            sourceComponent: DndPage {
-                onBackRequested: pageStack.currentIndex = root.pageDashboard
-            }
-        }
+
 
         // ==========================
-        // PAGE 7: AUDIO
+        // PAGE 6: AUDIO
         // ==========================
         Loader {
             id: audioLoader
-            active: root.visible && pageStack.currentIndex === root.pageAudio
+            active: pageStack.currentIndex === root.pageAudio
+            asynchronous: true
             sourceComponent: AudioPage {
                 onBackRequested: pageStack.currentIndex = root.pageDashboard
             }
         }
 
         // ==========================
-        // PAGE 8: PERFORMANCE
+        // PAGE 7: PERFORMANCE
         // ==========================
         Loader {
             id: performanceLoader
-            active: root.visible && pageStack.currentIndex === root.pagePerformance
+            active: pageStack.currentIndex === root.pagePerformance
+            asynchronous: true
             sourceComponent: PerformancePage {
                 onBackRequested: pageStack.currentIndex = root.pageDashboard
             }

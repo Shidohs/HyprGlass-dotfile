@@ -113,12 +113,48 @@ Singleton {
     }
 
     // ========================================================================
-    // ICON LOGIC
+    // ICON LOGIC (SVG/Symbolic)
     // ========================================================================
 
-    function getBatteryIcon() {
-        if (state === UPowerDeviceState.Charging) return "󰂄"
+    readonly property string iconSource: {
+        if (!hasBattery) return "battery-missing-symbolic";
+        
+        const p = percentage;
+        const s = state;
+        
+        if (s === UPowerDeviceState.Charging) {
+            if (p >= 100) return "battery-level-100-charged-symbolic";
+            if (p >= 90)  return "battery-level-90-charging-symbolic";
+            if (p >= 80)  return "battery-level-80-charging-symbolic";
+            if (p >= 70)  return "battery-level-70-charging-symbolic";
+            if (p >= 60)  return "battery-level-60-charging-symbolic";
+            if (p >= 50)  return "battery-level-50-charging-symbolic";
+            if (p >= 40)  return "battery-level-40-charging-symbolic";
+            if (p >= 30)  return "battery-level-30-charging-symbolic";
+            if (p >= 20)  return "battery-level-20-charging-symbolic";
+            if (p >= 10)  return "battery-level-10-charging-symbolic";
+            return "battery-level-0-charging-symbolic";
+        }
+        
+        if (s === UPowerDeviceState.Full) return "battery-level-100-symbolic";
+        
+        // Discharging or other states
+        if (p >= 100) return "battery-level-100-symbolic";
+        if (p >= 90)  return "battery-level-90-symbolic";
+        if (p >= 80)  return "battery-level-80-symbolic";
+        if (p >= 70)  return "battery-level-70-symbolic";
+        if (p >= 60)  return "battery-level-60-symbolic";
+        if (p >= 50)  return "battery-level-50-symbolic";
+        if (p >= 40)  return "battery-level-40-symbolic";
+        if (p >= 30)  return "battery-level-30-symbolic";
+        if (p >= 20)  return "battery-level-20-symbolic";
+        if (p >= 10)  return "battery-level-10-symbolic";
+        return "battery-level-0-symbolic";
+    }
 
+    function getBatteryIcon() {
+        // Keeping this for backward compatibility if needed, but iconSource is preferred
+        if (state === UPowerDeviceState.Charging) return "󰂄"
         const p = percentage
         if (p >= 90) return "󰁹"
         if (p >= 60) return "󰂀"

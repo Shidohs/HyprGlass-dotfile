@@ -17,6 +17,7 @@ QsPopupWindow base/QsPopupWindow.qml
 QsSlider base/QsSlider.qml
 QsSwitch base/QsSwitch.qml
 RefreshButton base/RefreshButton.qml
+QsToolTip base/QsToolTip.qml
 Spinner base/Spinner.qml
 TrayMenu shell/TrayMenu.qml
 TrayWidget shell/TrayWidget.qml

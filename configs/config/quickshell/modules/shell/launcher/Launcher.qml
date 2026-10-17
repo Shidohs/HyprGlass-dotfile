@@ -5,21 +5,20 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.services
 import qs.config
 
-PanelWindow {
+Scope {
     id: root
 
-    visible: LauncherService.visible
+    property bool visible: LauncherService.visible
 
-    readonly property string trackedModuleName: "Launcher"
-    readonly property color selectionColor: Qt.rgba(0.50, 0.67, 0.92, 0.26)
-    readonly property color selectionBorderColor: Qt.rgba(0.72, 0.84, 1.0, 0.42)
-    readonly property color selectionGlowColor: Qt.rgba(0.50, 0.67, 0.92, 0.12)
-    readonly property color hoverColor: Qt.alpha(Config.surface1Color, 0.18)
-    readonly property string matchColorCss: "#E8F1FF"
+    readonly property string trackedModuleName: "Launcher";
+    readonly property color selectionColor: Qt.rgba(0.50, 0.67, 0.92, 0.26);
+    readonly property color selectionBorderColor: Qt.rgba(0.72, 0.84, 1.0, 0.42);
+    readonly property color selectionGlowColor: Qt.rgba(0.50, 0.67, 0.92, 0.12);
+    readonly property color hoverColor: Qt.alpha(Config.surface1Color, 0.18);
+    readonly property string matchColorCss: "#E8F1FF";
 
     function escapeMarkup(text) {
         return (text || "")
@@ -43,7 +42,7 @@ PanelWindow {
         const before = escapeMarkup(plainText.slice(0, matchIndex));
         const match = escapeMarkup(plainText.slice(matchIndex, matchIndex + query.length));
         const after = escapeMarkup(plainText.slice(matchIndex + query.length));
-        return before + "<font color=\"" + matchColorCss + "\"><b>" + match + "</b></font>" + after;
+        return before + '<font color="' + matchColorCss + '"><b>' + match + '</b></font>' + after;
     }
 
     function resultTypeLabel(item) {
@@ -55,68 +54,59 @@ PanelWindow {
         return "App";
     }
 
-    anchors {
-        top: true
-        bottom: true
-        left: true
-        right: true
-    }
+    PanelWindow {
+        id: popupLayer
+        visible: root.visible
 
-    WlrLayershell.namespace: "qs_modules"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-    WlrLayershell.exclusiveZone: -1
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
 
-    exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.namespace: "qs_popup"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+        WlrLayershell.exclusiveZone: -1
 
-    color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        color: "transparent"
 
-    onVisibleChanged: {
-        if (visible)
-            WindowManagerService.registerOpen(trackedModuleName);
-        else
-            WindowManagerService.registerClose(trackedModuleName);
-    }
+        onVisibleChanged: {
+            if (visible)
+                WindowManagerService.registerOpen(trackedModuleName);
+            else
+                WindowManagerService.registerClose(trackedModuleName);
+        }
 
-    Component.onDestruction: WindowManagerService.registerClose(trackedModuleName)
+        Component.onDestruction: WindowManagerService.registerClose(trackedModuleName)
 
-    MouseArea {
-        anchors.fill: parent
-        onClicked: LauncherService.hide()
-    }
-
-    Loader {
-        anchors.fill: parent
-        active: LauncherService.visible
-
-        sourceComponent: Item {
+        Loader {
             anchors.fill: parent
+            active: root.visible
 
-            readonly property int canvasMaxWidth: 1334
-            readonly property int canvasMaxHeight: 726
-            readonly property int desiredColumns: Math.max(5, Math.min(8, Math.floor(gridArea.width / 132)))
-
-            Rectangle {
+            sourceComponent: Item {
                 anchors.fill: parent
-                color: Qt.alpha(Config.backgroundColor, Math.min(0.58, Config.launcherOpacity + 0.08))
-            }
 
-            Rectangle {
-                id: canvas
+                readonly property int desiredColumns: Math.max(5, Math.min(8, Math.floor(gridArea.width / 132)))
 
-                width: Math.min(root.width - 16, canvasMaxWidth)
-                height: Math.min(root.height - Config.barHeight - 10, canvasMaxHeight)
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: parent.top
-                anchors.topMargin: Config.barHeight + 2
+                // Fullscreen dim — semi-transparent so compositor blur shows through
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.alpha(Config.backgroundColor, Math.min(0.55, Config.launcherOpacity))
 
-                color: Qt.alpha(Config.backgroundColor, 0.12)
-                border.width: 0
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: LauncherService.hide()
+                    }
+                }
 
+                // Search bar
                 Rectangle {
                     id: searchShell
 
-                    width: 236
+                    width: 280
                     height: 54
                     radius: 16
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -125,13 +115,13 @@ PanelWindow {
 
                     color: Qt.rgba(0.10, 0.11, 0.14, 0.72)
                     border.width: 1
-                    border.color: Qt.alpha(searchInput.activeFocus ? Config.textColor : Config.surface1Color,
-                                           searchInput.activeFocus ? 0.14 : 0.08)
+                    border.color: Qt.alpha(
+                        searchInput.activeFocus ? Config.textColor : Config.surface1Color,
+                        searchInput.activeFocus ? 0.20 : 0.10
+                    )
 
                     Behavior on border.color {
-                        ColorAnimation {
-                            duration: Config.animDurationShort
-                        }
+                        ColorAnimation { duration: Config.animDurationShort }
                     }
 
                     MouseArea {
@@ -202,12 +192,6 @@ PanelWindow {
                             }
 
                             Keys.onUpPressed: event => {
-                                if (LauncherService.query.trim() !== "") {
-                                    if (LauncherService.selectedIndex > 0)
-                                        LauncherService.selectedIndex--;
-                                    event.accepted = true;
-                                    return;
-                                }
                                 const cols = Math.max(1, Math.floor(grid.width / grid.cellWidth));
                                 const newIndex = LauncherService.selectedIndex - cols;
                                 if (newIndex >= 0)
@@ -216,12 +200,6 @@ PanelWindow {
                             }
 
                             Keys.onDownPressed: event => {
-                                if (LauncherService.query.trim() !== "") {
-                                    if (LauncherService.selectedIndex < LauncherService.filteredApps.length - 1)
-                                        LauncherService.selectedIndex++;
-                                    event.accepted = true;
-                                    return;
-                                }
                                 const cols = Math.max(1, Math.floor(grid.width / grid.cellWidth));
                                 const newIndex = LauncherService.selectedIndex + cols;
                                 if (newIndex < LauncherService.filteredApps.length)
@@ -249,11 +227,12 @@ PanelWindow {
                     }
                 }
 
+                // App grid — always visible, search just filters in-place
                 Item {
                     id: gridArea
 
                     anchors.top: searchShell.bottom
-                    anchors.topMargin: 62
+                    anchors.topMargin: 48
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
@@ -270,149 +249,148 @@ PanelWindow {
                         reuseItems: true
                         cacheBuffer: 240
                         boundsBehavior: Flickable.StopAtBounds
-                        visible: LauncherService.query.trim() === ""
                         model: LauncherService.filteredApps
                         currentIndex: LauncherService.selectedIndex
                         cellWidth: Math.max(118, Math.floor(width / Math.max(1, desiredColumns)))
                         cellHeight: 178
 
-                    delegate: Item {
-                        id: delegateItem
-                        required property int index
-                        required property var modelData
+                        delegate: Item {
+                            id: delegateItem
+                            required property int index
+                            required property var modelData
 
-                        width: grid.cellWidth
-                        height: grid.cellHeight
+                            width: grid.cellWidth
+                            height: grid.cellHeight
 
-                        property bool isSelected: index === LauncherService.selectedIndex
-                        property bool isHovered: tileMouse.containsMouse
-                        property bool isAction: (modelData?.kind || "app") === "action"
-                        property bool isPinned: LauncherService.isPinned(modelData?.id || "")
-                        property bool canPin: (modelData?.kind || "app") !== "intent"
-
-                        Rectangle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.top: parent.top
-                            anchors.topMargin: delegateItem.isSelected ? -4 : 0
-                            width: Math.min(parent.width - 6, 126)
-                            height: delegateItem.isSelected ? 162 : 154
-                            radius: 22
-                            visible: delegateItem.isSelected
-                            color: root.selectionGlowColor
-                        }
-
-                        Rectangle {
-                            id: tileBackground
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            anchors.top: parent.top
-                            width: Math.min(parent.width - 14, 116)
-                            height: 154
-                            radius: 18
-                            color: delegateItem.isSelected
-                                ? root.selectionColor
-                                : (delegateItem.isHovered ? Qt.alpha(root.hoverColor, 1.15) : "transparent")
-                            border.width: delegateItem.isSelected ? 1 : (delegateItem.isHovered ? 1 : 0)
-                            border.color: delegateItem.isSelected
-                                ? root.selectionBorderColor
-                                : Qt.alpha(Config.surface1Color, 0.18)
-                            opacity: delegateItem.isHovered || delegateItem.isSelected ? 1 : 0.92
+                            property bool isSelected: index === LauncherService.selectedIndex
+                            property bool isHovered: tileMouse.containsMouse
+                            property bool isAction: (modelData?.kind || "app") === "action"
+                            property bool isPinned: LauncherService.isPinned(modelData?.id || "")
+                            property bool canPin: (modelData?.kind || "app") !== "intent"
 
                             Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                radius: parent.radius - 1
-                                color: delegateItem.isSelected
-                                    ? Qt.rgba(0.82, 0.89, 1.0, 0.05)
-                                    : "transparent"
-                            }
-
-                            Rectangle {
-                                visible: delegateItem.canPin && delegateItem.isPinned
-                                width: 20
-                                height: 20
-                                radius: 10
+                                anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.top: parent.top
-                                anchors.right: parent.right
-                                anchors.margins: 8
-                                color: Qt.alpha(Config.textColor, 0.18)
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "󰐃"
-                                    font.family: Config.font
-                                    font.pixelSize: 10
-                                    color: Config.textColor
-                                }
+                                anchors.topMargin: delegateItem.isSelected ? -4 : 0
+                                width: Math.min(parent.width - 6, 126)
+                                height: delegateItem.isSelected ? 162 : 154
+                                radius: 22
+                                visible: delegateItem.isSelected
+                                color: root.selectionGlowColor
                             }
 
-                            Column {
-                                anchors.fill: parent
-                                anchors.topMargin: delegateItem.isSelected ? 20 : 16
-                                anchors.leftMargin: 8
-                                anchors.rightMargin: 8
-                                spacing: 12
+                            Rectangle {
+                                id: tileBackground
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.top: parent.top
+                                width: Math.min(parent.width - 14, 116)
+                                height: 154
+                                radius: 18
+                                color: delegateItem.isSelected
+                                    ? root.selectionColor
+                                    : (delegateItem.isHovered ? root.hoverColor : "transparent")
+                                border.width: delegateItem.isSelected ? 1 : (delegateItem.isHovered ? 1 : 0)
+                                border.color: delegateItem.isSelected
+                                    ? root.selectionBorderColor
+                                    : Qt.alpha(Config.surface1Color, 0.18)
+                                opacity: delegateItem.isHovered || delegateItem.isSelected ? 1 : 0.92
 
-                                Item {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    width: delegateItem.isSelected ? 72 : 68
-                                    height: delegateItem.isSelected ? 72 : 68
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: 1
+                                    radius: parent.radius - 1
+                                    color: delegateItem.isSelected
+                                        ? Qt.rgba(0.82, 0.89, 1.0, 0.05)
+                                        : "transparent"
+                                }
 
-                                    Image {
-                                        anchors.centerIn: parent
-                                        visible: !delegateItem.isAction
-                                        asynchronous: true
-                                        width: parent.width
-                                        height: parent.height
-                                        source: {
-                                            const icon = delegateItem.modelData?.iconName ?? "";
-                                            return icon ? "image://icon/" + icon : "image://icon/application-x-executable";
-                                        }
-                                        sourceSize: Qt.size(96, 96)
-                                        fillMode: Image.PreserveAspectFit
-                                        smooth: true
-                                    }
+                                Rectangle {
+                                    visible: delegateItem.canPin && delegateItem.isPinned
+                                    width: 20
+                                    height: 20
+                                    radius: 10
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.margins: 8
+                                    color: Qt.alpha(Config.textColor, 0.18)
 
                                     Text {
                                         anchors.centerIn: parent
-                                        visible: delegateItem.isAction
-                                        text: delegateItem.modelData?.iconGlyph ?? "󰀻"
+                                        text: "󰐃"
                                         font.family: Config.font
-                                        font.pixelSize: delegateItem.isSelected ? 44 : 40
+                                        font.pixelSize: 10
                                         color: Config.textColor
                                     }
                                 }
 
-                                Text {
-                                    width: parent.width
-                                    text: root.highlightedLabel(delegateItem.modelData?.name ?? "")
-                                    textFormat: Text.StyledText
-                                    color: Config.textColor
-                                    font.family: Config.font
-                                    font.pixelSize: Config.fontSizeSmall + 1
-                                    font.weight: delegateItem.isSelected ? Font.Medium : Font.Normal
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.Wrap
-                                    maximumLineCount: 2
+                                Column {
+                                    anchors.fill: parent
+                                    anchors.topMargin: delegateItem.isSelected ? 20 : 16
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 12
+
+                                    Item {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        width: delegateItem.isSelected ? 72 : 68
+                                        height: delegateItem.isSelected ? 72 : 68
+
+                                        Image {
+                                            anchors.centerIn: parent
+                                            visible: !delegateItem.isAction
+                                            asynchronous: true
+                                            width: parent.width
+                                            height: parent.height
+                                            source: {
+                                                const icon = delegateItem.modelData?.iconName ?? "";
+                                                return icon ? "image://icon/" + icon : "image://icon/application-x-executable";
+                                            }
+                                            sourceSize: Qt.size(96, 96)
+                                            fillMode: Image.PreserveAspectFit
+                                            smooth: true
+                                        }
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: delegateItem.isAction
+                                            text: delegateItem.modelData?.iconGlyph ?? "󰀻"
+                                            font.family: Config.font
+                                            font.pixelSize: delegateItem.isSelected ? 44 : 40
+                                            color: Config.textColor
+                                        }
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: root.highlightedLabel(delegateItem.modelData?.name ?? "")
+                                        textFormat: Text.StyledText
+                                        color: Config.textColor
+                                        font.family: Config.font
+                                        font.pixelSize: Config.fontSizeSmall + 1
+                                        font.weight: delegateItem.isSelected ? Font.Medium : Font.Normal
+                                        horizontalAlignment: Text.AlignHCenter
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 2
+                                    }
                                 }
                             }
-                        }
 
-                        MouseArea {
-                            id: tileMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton | Qt.RightButton
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: mouse => {
-                                if (mouse.button === Qt.RightButton && delegateItem.canPin) {
-                                    LauncherService.togglePinned(delegateItem.modelData?.id || "");
-                                    return;
-                                }
-                                if (delegateItem.isSelected) {
-                                    if (delegateItem.modelData)
-                                        LauncherService.launch(delegateItem.modelData);
-                                } else {
-                                    LauncherService.selectedIndex = delegateItem.index;
+                            MouseArea {
+                                id: tileMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: mouse => {
+                                    if (mouse.button === Qt.RightButton && delegateItem.canPin) {
+                                        LauncherService.togglePinned(delegateItem.modelData?.id || "");
+                                        return;
+                                    }
+                                    if (delegateItem.isSelected) {
+                                        if (delegateItem.modelData)
+                                            LauncherService.launch(delegateItem.modelData);
+                                    } else {
+                                        LauncherService.selectedIndex = delegateItem.index;
                                     }
                                 }
                             }
@@ -436,229 +414,30 @@ PanelWindow {
                         }
                     }
 
-                    ListView {
-                        id: searchResults
+                    // No results placeholder
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        visible: LauncherService.filteredApps.length === 0
 
-                        anchors.fill: parent
-                        visible: LauncherService.query.trim() !== ""
-                        clip: true
-                        reuseItems: true
-                        cacheBuffer: 320
-                        spacing: 10
-                        boundsBehavior: Flickable.StopAtBounds
-                        model: LauncherService.filteredApps
-                        currentIndex: LauncherService.selectedIndex
-
-                        delegate: Item {
-                            id: rowItem
-                            required property int index
-                            required property var modelData
-
-                            width: searchResults.width
-                            height: 72
-
-                            property bool isSelected: index === LauncherService.selectedIndex
-                            property bool isHovered: rowMouse.containsMouse
-                            property bool isAction: (modelData?.kind || "app") !== "app"
-                            property bool isPinned: LauncherService.isPinned(modelData?.id || "")
-                            property bool canPin: (modelData?.kind || "app") !== "intent"
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 18
-                                color: rowItem.isSelected
-                                    ? root.selectionColor
-                                    : (rowItem.isHovered ? Qt.alpha(root.hoverColor, 1.1) : "transparent")
-                                border.width: rowItem.isSelected ? 1 : (rowItem.isHovered ? 1 : 0)
-                                border.color: rowItem.isSelected
-                                    ? root.selectionBorderColor
-                                    : Qt.alpha(Config.surface1Color, 0.18)
-                            }
-
-                            Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                radius: 17
-                                visible: rowItem.isSelected
-                                color: Qt.rgba(0.82, 0.89, 1.0, 0.05)
-                            }
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 16
-                                anchors.rightMargin: 16
-                                spacing: 14
-
-                                Item {
-                                    Layout.preferredWidth: 42
-                                    Layout.preferredHeight: 42
-
-                                    Image {
-                                        anchors.fill: parent
-                                        visible: !rowItem.isAction
-                                        asynchronous: true
-                                        source: {
-                                            const icon = rowItem.modelData?.iconName ?? "";
-                                            return icon ? "image://icon/" + icon : "image://icon/application-x-executable";
-                                        }
-                                        sourceSize: Qt.size(64, 64)
-                                        fillMode: Image.PreserveAspectFit
-                                        smooth: true
-                                    }
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        visible: rowItem.isAction
-                                        text: rowItem.modelData?.iconGlyph ?? "󰀻"
-                                        font.family: Config.font
-                                        font.pixelSize: 30
-                                        color: Config.textColor
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: root.highlightedLabel(rowItem.modelData?.name ?? "")
-                                        textFormat: Text.StyledText
-                                        color: Config.textColor
-                                        font.family: Config.font
-                                        font.pixelSize: Config.fontSizeNormal
-                                        font.weight: rowItem.isSelected ? Font.Medium : Font.Normal
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: root.highlightedLabel(rowItem.modelData?.subtitle ?? "")
-                                        textFormat: Text.StyledText
-                                        color: Qt.alpha(Config.textColor, 0.64)
-                                        font.family: Config.font
-                                        font.pixelSize: Config.fontSizeSmall
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.alignment: Qt.AlignVCenter
-                                    radius: 12
-                                    color: Qt.alpha(Config.textColor, 0.10)
-                                    visible: rowItem.canPin && rowItem.isPinned
-                                    implicitWidth: pinRow.implicitWidth + 12
-                                    implicitHeight: 24
-
-                                    Row {
-                                        id: pinRow
-                                        anchors.centerIn: parent
-                                        spacing: 4
-
-                                        Text {
-                                            text: "󰐃"
-                                            font.family: Config.font
-                                            font.pixelSize: 11
-                                            color: Config.textColor
-                                        }
-
-                                        Text {
-                                            text: "Pinned"
-                                            font.family: Config.font
-                                            font.pixelSize: Config.fontSizeSmall - 1
-                                            color: Config.textColor
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.alignment: Qt.AlignVCenter
-                                    radius: 12
-                                    color: Qt.alpha(Config.textColor, 0.08)
-                                    implicitWidth: typeText.implicitWidth + 12
-                                    implicitHeight: 24
-
-                                    Text {
-                                        id: typeText
-                                        anchors.centerIn: parent
-                                        text: root.resultTypeLabel(rowItem.modelData)
-                                        font.family: Config.font
-                                        font.pixelSize: Config.fontSizeSmall - 1
-                                        color: Qt.alpha(Config.textColor, 0.78)
-                                    }
-                                }
-                            }
-
-                            MouseArea {
-                                id: rowMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: mouse => {
-                                    if (mouse.button === Qt.RightButton && rowItem.canPin) {
-                                        LauncherService.togglePinned(rowItem.modelData?.id || "");
-                                        return;
-                                    }
-                                    if (rowItem.isSelected) {
-                                        if (rowItem.modelData)
-                                            LauncherService.launch(rowItem.modelData);
-                                    } else {
-                                        LauncherService.selectedIndex = rowItem.index;
-                                    }
-                                }
-                            }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "No results"
+                            font.family: Config.font
+                            font.pixelSize: Config.fontSizeLarge
+                            color: Config.textColor
                         }
 
-                        onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
-
-                        ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AsNeeded
-
-                            contentItem: Rectangle {
-                                implicitWidth: 4
-                                radius: 2
-                                color: Qt.alpha(Config.surface2Color, 0.45)
-                            }
-
-                            background: Rectangle {
-                                implicitWidth: 4
-                                color: "transparent"
-                            }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: "Try another search term."
+                            font.family: Config.font
+                            font.pixelSize: Config.fontSizeSmall
+                            color: Qt.alpha(Config.textColor, 0.68)
                         }
                     }
                 }
             }
-
-            Column {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: canvas.top
-                anchors.topMargin: 232
-                spacing: 8
-                visible: LauncherService.filteredApps.length === 0
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "No results"
-                    font.family: Config.font
-                    font.pixelSize: Config.fontSizeLarge
-                    color: Config.textColor
-                }
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Try another search term."
-                    font.family: Config.font
-                    font.pixelSize: Config.fontSizeSmall
-                    color: Qt.alpha(Config.textColor, 0.68)
-                }
-            }
         }
-    }
-
-    HyprlandFocusGrab {
-        windows: [root]
-        active: root.visible
-        onCleared: LauncherService.hide()
     }
 }

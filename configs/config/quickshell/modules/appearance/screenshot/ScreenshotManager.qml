@@ -1,12 +1,16 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
 import qs.config
+import "." as ScreenshotParts
 
 Scope {
     id: root
+
+    readonly property bool niriSessionAvailable: (Quickshell.env("NIRI_SOCKET") || "") !== ""
+    readonly property bool hyprlandSessionAvailable: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "") !== ""
+    readonly property string compositorBackend: niriSessionAvailable ? "niri" : (hyprlandSessionAvailable ? "hyprland" : "")
 
     // =========================================================================
     // STATE
@@ -31,7 +35,7 @@ Scope {
     property string selectedWindowClass: ""
 
     // Monitor tracking
-    property var hyprlandMonitor: Hyprland.focusedMonitor
+    property var activeMonitorInfo: null
     property var activeScreen: null
 
     // IPC data (fresh on each capture)
@@ -84,39 +88,81 @@ Scope {
 
     Process {
         id: hyprctlMonitors
-        command: ["hyprctl", "monitors", "-j"]
+        command: root.compositorBackend === "niri" ? ["niri", "msg", "-j", "outputs"]
+            : root.compositorBackend === "hyprland" ? ["hyprctl", "monitors", "-j"]
+            : []
         stdout: SplitParser {
             splitMarker: ""
             onRead: data => {
                 try {
-                    root.monitorsFromIpc = JSON.parse(data);
+                    const parsed = JSON.parse(data);
+                    if (Array.isArray(parsed))
+                        root.monitorsFromIpc = parsed;
+                    else if (parsed && Array.isArray(parsed.outputs))
+                        root.monitorsFromIpc = parsed.outputs;
+                    else if (parsed && typeof parsed === "object")
+                        root.monitorsFromIpc = Object.values(parsed);
+                    else
+                        root.monitorsFromIpc = [];
                 } catch (e) {
                     root.monitorsFromIpc = [];
                 }
             }
         }
-        onExited: hyprctlClients.running = true
+        onExited: exitCode => {
+            if (exitCode === 0)
+                hyprctlClients.running = true;
+            else
+                root.monitorsFromIpc = [];
+        }
     }
 
     Process {
         id: hyprctlClients
-        command: ["hyprctl", "clients", "-j"]
+        command: root.compositorBackend === "niri" ? ["niri", "msg", "-j", "windows"]
+            : root.compositorBackend === "hyprland" ? ["hyprctl", "clients", "-j"]
+            : []
         stdout: SplitParser {
             splitMarker: ""
             onRead: data => {
                 try {
-                    root.windowsFromIpc = JSON.parse(data);
+                    const parsed = JSON.parse(data);
+                    if (Array.isArray(parsed))
+                        root.windowsFromIpc = parsed;
+                    else if (parsed && Array.isArray(parsed.windows))
+                        root.windowsFromIpc = parsed.windows;
+                    else
+                        root.windowsFromIpc = [];
                 } catch (e) {
                     root.windowsFromIpc = [];
                 }
             }
         }
-        onExited: root.startGrimCapture()
+        onExited: exitCode => {
+            if (exitCode === 0)
+                root.startGrimCapture();
+            else
+                root.windowsFromIpc = [];
+        }
     }
 
     Process {
         id: grimCapture
-        onExited: root.active = true
+        onExited: exitCode => {
+            if (exitCode === 0) {
+                overlayReadyDelay.restart();
+            } else {
+                console.error("[Screenshot] Failed to capture monitor snapshots");
+                root.captureTimestamp = "";
+                root.active = false;
+            }
+        }
+    }
+
+    Timer {
+        id: overlayReadyDelay
+        interval: 50
+        onTriggered: root.active = true
     }
 
     // =========================================================================
@@ -124,6 +170,13 @@ Scope {
     // =========================================================================
 
     function startCapture() {
+        if (root.compositorBackend === "") {
+            console.error("[Screenshot] No supported compositor backend detected");
+            root.active = false;
+            root.captureTimestamp = "";
+            return;
+        }
+
         prepareCapture();
         hyprctlMonitors.running = true;
     }
@@ -176,8 +229,24 @@ Scope {
             root.selectionWidth = root.activeScreen?.width || 1920;
             root.selectionHeight = root.activeScreen?.height || 1080;
             root.hasSelection = true;
-            root.selectedWindowTitle = root.hyprlandMonitor?.name || "Monitor";
+            root.selectedWindowTitle = root.activeMonitorInfo?.name || root.activeScreen?.name || "Monitor";
         }
+    }
+
+    function monitorInfoForScreen(screenName) {
+        if (!screenName || !root.monitorsFromIpc || root.monitorsFromIpc.length === 0)
+            return null;
+
+        for (const output of root.monitorsFromIpc) {
+            const outputName = output.name || output.output || output.connector;
+            if (outputName === screenName)
+                return output;
+        }
+        return null;
+    }
+
+    function updateActiveMonitorInfo(screenName) {
+        root.activeMonitorInfo = monitorInfoForScreen(screenName);
     }
 
     function confirmSelection() {
@@ -195,10 +264,10 @@ Scope {
         if (!monitorIpc)
             return;
 
-        const monitorX = monitorIpc.x;
-        const monitorY = monitorIpc.y;
-        const monitorId = monitorIpc.id;
-        const activeWorkspaceId = monitorIpc.activeWorkspace?.id;
+        const monitorX = monitorIpc.x || 0;
+        const monitorY = monitorIpc.y || 0;
+        const monitorId = monitorIpc.id ?? monitorIpc.idx ?? monitorIpc.index ?? monitorIpc.name;
+        const activeWorkspaceId = monitorIpc.activeWorkspace?.id ?? monitorIpc.active_workspace?.id ?? monitorIpc.currentWorkspace?.id ?? monitorIpc.current_workspace_id ?? null;
 
         const windows = root.windowsFromIpc;
         if (!windows || windows.length === 0) {
@@ -210,27 +279,36 @@ Scope {
             let win = windows[i];
             if (!win)
                 continue;
-            if (win.monitor !== monitorId)
+
+            const winMonitor = win.monitor ?? win.output ?? win.output_name ?? win.outputName ?? win.name;
+            const winWorkspaceId = win.workspace?.id ?? win.workspace_id ?? win.workspaceId ?? null;
+            const winAt = Array.isArray(win.at) ? win.at : [win.x ?? win.layout?.x, win.y ?? win.layout?.y];
+            const winSize = Array.isArray(win.size) ? win.size : [win.width ?? win.layout?.width, win.height ?? win.layout?.height];
+            const winTitle = win.title || win.name || "";
+            const winClass = win.class || win.app_id || win.appId || "";
+            const winHidden = win.hidden || false;
+
+            if (winMonitor !== undefined && winMonitor !== monitorId && winMonitor !== screenName)
                 continue;
-            if (win.workspace?.id !== activeWorkspaceId)
+            if (activeWorkspaceId !== null && winWorkspaceId !== null && winWorkspaceId !== activeWorkspaceId)
                 continue;
-            if (!win.at || !win.size || win.at.length < 2 || win.size.length < 2)
+            if (!winAt || !winSize || winAt.length < 2 || winSize.length < 2)
                 continue;
-            if ((win.title === "" && win.class === "") || win.hidden)
+            if ((winTitle === "" && winClass === "") || winHidden)
                 continue;
 
-            let winX = win.at[0] - monitorX;
-            let winY = win.at[1] - monitorY;
-            let winW = win.size[0];
-            let winH = win.size[1];
+            let winX = winAt[0] - monitorX;
+            let winY = winAt[1] - monitorY;
+            let winW = winSize[0];
+            let winH = winSize[1];
 
             if (mouseX >= winX && mouseX <= winX + winW && mouseY >= winY && mouseY <= winY + winH) {
                 root.selectionX = winX;
                 root.selectionY = winY;
                 root.selectionWidth = winW;
                 root.selectionHeight = winH;
-                root.selectedWindowTitle = win.title || win.class || "Window";
-                root.selectedWindowClass = win.class || "";
+                root.selectedWindowTitle = winTitle || winClass || "Window";
+                root.selectedWindowClass = winClass;
                 return;
             }
         }
@@ -246,16 +324,10 @@ Scope {
         resetSelection();
         root.activeScreen = null;
 
-        const monitor = Hyprland.focusedMonitor;
-        if (monitor) {
-            for (const screen of Quickshell.screens) {
-                if (screen.name === monitor.name) {
-                    root.activeScreen = screen;
-                    root.hyprlandMonitor = monitor;
-                    break;
-                }
-            }
-        }
+        if (Quickshell.screens && Quickshell.screens.length > 0)
+            root.activeScreen = Quickshell.screens[0];
+
+        root.updateActiveMonitorInfo(root.activeScreen?.name || "");
 
         root.captureTimestamp = String(Date.now());
     }
@@ -264,9 +336,17 @@ Scope {
         const commands = [];
         for (const monitor of root.monitorsFromIpc) {
             const path = tempPathForScreen(monitor.name);
-            commands.push(`grim -o '${monitor.name}' '${path}'`);
+            commands.push(`grim -o ${shellEscape(monitor.name)} ${shellEscape(path)}`);
         }
-        grimCapture.command = ["sh", "-c", commands.join(" & ") + " & wait"];
+
+        if (commands.length === 0) {
+            console.error("[Screenshot] No monitors available for capture");
+            root.captureTimestamp = "";
+            root.active = false;
+            return;
+        }
+
+        grimCapture.command = ["sh", "-c", commands.join(" && ")];
         grimCapture.running = true;
     }
 
@@ -274,8 +354,8 @@ Scope {
         if (width < 5 || height < 5)
             return;
 
-        const scale = root.hyprlandMonitor?.scale || 1;
-        const monitorName = root.hyprlandMonitor?.name || "";
+        const scale = root.activeMonitorInfo?.scale || 1;
+        const monitorName = root.activeMonitorInfo?.name || root.activeScreen?.name || "";
         const sourcePath = tempPathForScreen(monitorName);
 
         // Per-monitor image: no monitor offset needed
@@ -325,7 +405,7 @@ Scope {
             Variants {
                 model: Quickshell.screens
 
-                delegate: ScreenshotOverlay {
+                delegate: ScreenshotParts.ScreenshotOverlay {
                     required property var modelData
                     screen: modelData
                     screenshot: root

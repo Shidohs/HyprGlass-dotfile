@@ -1,0 +1,5 @@
+[config]
+# No default wallpaper command
+[templates.hyprland]
+input_path = "/home/shidox/Público/HyprGlass-dotfile/configs/config/matugen/templates/hyprland-colors.conf"
+output_path = "/home/shidox/.config/hypr/matugen-colors.conf"

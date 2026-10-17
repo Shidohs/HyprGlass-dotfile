@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
+# HyprGlass - Theme Manager GUI / Rofi Controller
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/../lib"
+
+if [[ -f "$LIB_DIR/logging.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$LIB_DIR/logging.sh"
+else
+    log_info() { echo "[INFO] $1"; }
+    log_warn() { echo "[WARN] $1"; }
+    log_error() { echo "[ERROR] $1"; }
+fi
+
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/theme-lib.sh"
 
-ROFI_THEME="$HOME/.config/hypr/rofi/themes/launcher.rasi"
+ROFI_THEME="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/rofi/themes/launcher.rasi"
 UNIFIER="$SCRIPT_DIR/theme-unifier.sh"
 
 rofi_menu() {
@@ -14,10 +26,10 @@ rofi_menu() {
     local message="$2"
     local -a args=(-dmenu -i -p "$prompt")
 
-    command -v rofi >/dev/null 2>&1 || {
-        echo "rofi is not installed" >&2
+    if ! command -v rofi >/dev/null 2>&1; then
+        log_error "Rofi is not installed on this system."
         return 1
-    }
+    fi
 
     if [[ -n "$message" ]]; then
         args+=(-mesg "$message")
@@ -30,8 +42,9 @@ rofi_menu() {
 }
 
 notify() {
-    command -v notify-send >/dev/null 2>&1 || return 0
-    notify-send "Theme Manager" "$1" -i preferences-desktop-theme
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Theme Manager" "$1" -i preferences-desktop-theme 2>/dev/null || true
+    fi
 }
 
 apply_current_state() {
@@ -49,11 +62,11 @@ select_theme() {
     icons="$(get_installed_icons)"
 
     [[ -n "$themes" ]] || {
-        echo "No GTK themes found" >&2
+        log_warn "No GTK themes found"
         return 1
     }
     [[ -n "$icons" ]] || {
-        echo "No icon themes found" >&2
+        log_warn "No icon themes found"
         return 1
     }
 
@@ -75,7 +88,7 @@ select_cursor() {
     load_theme_state
     cursors="$(get_installed_cursors)"
     [[ -n "$cursors" ]] || {
-        echo "No cursor themes found" >&2
+        log_warn "No cursor themes found"
         return 1
     }
 
@@ -117,7 +130,7 @@ Dracula"
     esac
 
     apply_current_state
-    notify "Preset: $selected"
+    notify "Preset applied: $selected"
 }
 
 show_status() {
@@ -126,7 +139,7 @@ show_status() {
 
 show_help() {
     cat <<'EOF'
-theme-manager.sh select|cursor|preset|apply|status|help
+Usage: theme-manager.sh [select|cursor|preset|apply|status|help]
 EOF
 }
 

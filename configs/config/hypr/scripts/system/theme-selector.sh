@@ -1,3 +1,7 @@
 #!/usr/bin/env bash
+# HyprGlass - Theme Selector Shortcut
 
-exec "$HOME/.config/hypr/scripts/system/theme-manager.sh" select "$@"
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/theme-manager.sh" select "$@"

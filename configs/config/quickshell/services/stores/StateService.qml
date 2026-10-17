@@ -8,28 +8,28 @@ import "."
 
 /**
  * StateService - Global persistent state management for QuickShell
- * 
+ *
  * @singleton
  * @extends JsonStore
- * 
+ *
  * Provides a centralized JSON-backed state store with automatic save/load.
  * Supports deep merge from fallback paths (legacy state, defaults).
- * 
+ *
  * Key Methods (inherited from JsonStore):
  * - get(path: string, defaultValue: any) - Get value at dot-notation path
  * - set(path: string, value: any) - Set value and trigger auto-save
  * - remove(path: string) - Remove value and cleanup empty parent objects
  * - merge(obj: object) - Deep merge object into current state
- * 
+ *
  * Properties:
  * - state: object - Current state object
  * - isLoading: bool - True while initial load is in progress
- * 
+ *
  * Architecture:
  * - ARCH-001: Race condition fixed - load/save operations now use mutex
  * - Auto-saves with 200ms debounce to avoid excessive disk writes
  * - Watches file for external changes and reloads with 150ms debounce
- * 
+ *
  * Usage:
  *   StateService.set("bar.height", 48)
  *   let height = StateService.get("bar.height", 44)
@@ -41,6 +41,7 @@ JsonStore {
     storePath: Quickshell.env("HOME") + "/.config/quickshell/data/state/state.json"
     readonly property string defaultsPath: Quickshell.env("HOME") + "/.lyne-dots/.data/quickshell/defaults.json"
     readonly property string legacyStatePath: Quickshell.env("HOME") + "/.config/quickshell/state.json"
+    property string legacyStateWatchPath: ""
     fallbackPaths: [
         legacyStatePath,
         defaultsPath,
@@ -90,7 +91,7 @@ JsonStore {
 
     FileView {
         id: legacyStateWatcher
-        path: root.legacyStatePath
+        path: root.legacyStateWatchPath
         watchChanges: true
 
         onFileChanged: {
@@ -105,6 +106,21 @@ JsonStore {
         onTriggered: {
             if (!legacyLoadProc.running)
                 legacyLoadProc.running = true;
+        }
+    }
+
+    Component.onCompleted: _probeLegacyState.running = true
+
+    Process {
+        id: _probeLegacyState
+        command: ["test", "-f", root.legacyStatePath]
+
+        onExited: exitCode => {
+            if (exitCode === 0) {
+                root.legacyStateWatchPath = root.legacyStatePath;
+                if (!root.isLoading && !legacyLoadProc.running)
+                    legacyLoadProc.running = true;
+            }
         }
     }
 

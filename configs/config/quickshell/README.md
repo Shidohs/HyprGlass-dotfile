@@ -4,24 +4,25 @@ Shell de escritorio Wayland construido con [Quickshell](https://quickshell.outfo
 
 ## Dependencias
 
-| Herramienta | Uso |
-|-------------|-----|
-| `quickshell` | Motor del shell |
-| `pipewire` / `wireplumber` | Audio |
-| `networkmanager` | WiFi / Ethernet |
-| `bluez` | Bluetooth |
-| `hyprland` | Compositor Wayland |
-| `swww` | Cambio de wallpaper |
-| `hyprsunset` | Night light |
-| `matugen` | Temas automáticos (Material You) |
-| `python3` + `dbus-python` + `pygobject` | Agente Bluetooth |
-| `kdialog` | Diálogos Bluetooth |
-| `wtype` | Simulación de teclado |
-| `grimblast` | Capturas de pantalla |
-| `cliphist` | Historial de portapapeles |
-| `wl-clipboard` | Portapapeles Wayland |
+| Herramienta                             | Uso                              |
+| --------------------------------------- | -------------------------------- |
+| `quickshell`                            | Motor del shell                  |
+| `pipewire` / `wireplumber`              | Audio                            |
+| `networkmanager`                        | WiFi / Ethernet                  |
+| `bluez`                                 | Bluetooth                        |
+| `hyprland`                              | Compositor Wayland               |
+| `awww`                                  | Cambio de wallpaper              |
+| `hyprsunset`                            | Night light                      |
+| `matugen`                               | Temas automáticos (Material You) |
+| `python3` + `dbus-python` + `pygobject` | Agente Bluetooth                 |
+| `kdialog`                               | Diálogos Bluetooth               |
+| `wtype`                                 | Simulación de teclado            |
+| `grimblast`                             | Capturas de pantalla             |
+| `cliphist`                              | Historial de portapapeles        |
+| `wl-clipboard`                          | Portapapeles Wayland             |
 
 ### Fuentes
+
 - **Caskaydia Cove Nerd Font** (UI y texto)
 
 ## Estructura
@@ -115,13 +116,13 @@ El proyecto sigue dependiendo de algunos artefactos fuera de este árbol:
 
 ### Contratos y ownership
 
-| Recurso externo | Consumido por | Rol | Si falla |
-|---|---|---|---|
-| `~/.config/hypr/scripts/tools/AleatoryWall.sh` | `WallpaperManagerService` | Aplicar y rotar wallpapers, sincronizar lockscreen y pywal | El wallpaper no cambia o queda rollback con mensaje visible |
-| `~/.config/hypr/scripts/system/theme-unifier.sh` | `ThemeBackendService` | Aplicar tema GTK/iconos/cursor del sistema | El tema del sistema no se actualiza y se muestra error visible |
-| `~/.lyne-dots/.data/quickshell/defaults.json` | `StateService` | Fallback de valores por defecto | Se usan solo los defaults locales de `Config.qml` y el estado persistido |
-| `http://127.0.0.1:4200` (OpenFang por defecto) | `AiService`, `scripts/ai/ai_chat.py` | Backend único de Orbit: agentes, streaming, sesión y errores | Orbit no puede listar agentes ni chatear hasta recuperar OpenFang |
-| `/tmp/QsAnyModuleIsOpen` | `WindowManagerService`, bluetooth agent | Coordinación ligera entre overlays/agentes | Puede degradarse la coordinación de foco/estado, pero no rompe el shell completo |
+| Recurso externo                                  | Consumido por                           | Rol                                                          | Si falla                                                                         |
+| ------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| `~/.config/hypr/scripts/tools/AleatoryWall.sh`   | `WallpaperManagerService`               | Aplicar y rotar wallpapers, sincronizar lockscreen y pywal   | El wallpaper no cambia o queda rollback con mensaje visible                      |
+| `~/.config/hypr/scripts/system/theme-unifier.sh` | `ThemeBackendService`                   | Aplicar tema GTK/iconos/cursor del sistema                   | El tema del sistema no se actualiza y se muestra error visible                   |
+| `~/.lyne-dots/.data/quickshell/defaults.json`    | `StateService`                          | Fallback de valores por defecto                              | Se usan solo los defaults locales de `Config.qml` y el estado persistido         |
+| `http://127.0.0.1:4200` (OpenFang por defecto)   | `AiService`, `scripts/ai/ai_chat.py`    | Backend único de Orbit: agentes, streaming, sesión y errores | Orbit no puede listar agentes ni chatear hasta recuperar OpenFang                |
+| `/tmp/QsAnyModuleIsOpen`                         | `WindowManagerService`, bluetooth agent | Coordinación ligera entre overlays/agentes                   | Puede degradarse la coordinación de foco/estado, pero no rompe el shell completo |
 
 ### Ownership interno de scripts
 
@@ -135,16 +136,16 @@ El proyecto sigue dependiendo de algunos artefactos fuera de este árbol:
 
 Los atajos se registran en Hyprland. Configúralos en tu `hyprland.conf`:
 
-| Acción | Nombre del shortcut |
-|--------|---------------------|
-| Captura de pantalla | `take_screenshot` |
-| Menú de energía | `power_menu` |
-| Lanzador de apps | `app_launcher` |
-| Subir volumen | `volume_up` |
-| Bajar volumen | `volume_down` |
-| Silenciar | `volume_mute` |
-| Subir brillo | `brightness_up` |
-| Bajar brillo | `brightness_down` |
-| Selector de wallpaper | `wallpaper_picker` |
+| Acción                 | Nombre del shortcut |
+| ---------------------- | ------------------- |
+| Captura de pantalla    | `take_screenshot`   |
+| Menú de energía        | `power_menu`        |
+| Lanzador de apps       | `app_launcher`      |
+| Subir volumen          | `volume_up`         |
+| Bajar volumen          | `volume_down`       |
+| Silenciar              | `volume_mute`       |
+| Subir brillo           | `brightness_up`     |
+| Bajar brillo           | `brightness_down`   |
+| Selector de wallpaper  | `wallpaper_picker`  |
 | Historial portapapeles | `clipboard_history` |
-| Ayuda de atajos | `keybinds_help` |
+| Ayuda de atajos        | `keybinds_help`     |

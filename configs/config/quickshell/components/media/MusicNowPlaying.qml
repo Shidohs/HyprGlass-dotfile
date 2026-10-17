@@ -1,7 +1,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
+import qs.components
 import qs.config
 import qs.services
 
@@ -79,9 +79,11 @@ RowLayout {
                 acceptedButtons: Qt.NoButton
             }
 
-            ToolTip.visible: titleHover.containsMouse && parent.truncated
-            ToolTip.text: text
-            ToolTip.delay: 500
+            QsToolTip {
+                shown: titleHover.containsMouse && parent.truncated
+                text: parent.text
+                delay: 500
+            }
         }
 
         // Artist
@@ -100,9 +102,11 @@ RowLayout {
                 acceptedButtons: Qt.NoButton
             }
 
-            ToolTip.visible: artistHover.containsMouse && parent.truncated
-            ToolTip.text: text
-            ToolTip.delay: 500
+            QsToolTip {
+                shown: artistHover.containsMouse && parent.truncated
+                text: parent.text
+                delay: 500
+            }
         }
     }
 }

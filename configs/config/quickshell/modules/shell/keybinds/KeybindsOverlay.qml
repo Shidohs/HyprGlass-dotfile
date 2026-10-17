@@ -4,30 +4,16 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.config
 import qs.components
 import qs.services
 
-PanelWindow {
+Scope {
     id: root
 
     property bool showing: false
 
-    visible: showing
-
-    anchors {
-        top: true
-        bottom: true
-        left: true
-        right: true
-    }
-
-    WlrLayershell.namespace: "qs_modules"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-
-    color: "transparent"
+    property bool visible: showing
 
     function toggle() {
         showing = !showing;
@@ -42,11 +28,48 @@ PanelWindow {
             HyprKeybindsService.reload();
     }
 
-    // Click on background closes
-    MouseArea {
-        anchors.fill: parent
-        onClicked: root.hide()
+    // 1) Dim layer
+    PanelWindow {
+        id: dimLayer
+        visible: root.visible
+
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        WlrLayershell.namespace: "qs_fullscreen"
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+        color: "transparent"
+
+        // Click on background closes
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.hide()
+        }
     }
+
+    // 2) Popup layer
+    PanelWindow {
+        id: popupLayer
+        visible: root.visible
+
+        implicitWidth: 560
+        implicitHeight: 680
+
+        WlrLayershell.namespace: "qs_popup"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+
+        color: "transparent"
+
+
+
+
 
     // Keyboard shortcuts
     Shortcut {
@@ -58,13 +81,11 @@ PanelWindow {
     Rectangle {
         id: content
 
-        anchors.centerIn: parent
-        width: 560
-        height: Math.min(680, root.height - 80)
+        anchors.fill: parent
 
         radius: Config.radiusLarge
-        color: Config.backgroundTransparentColor
-        border.color: Qt.alpha(Config.accentColor, 0.2)
+        color: Config.moduleBackgroundColor
+        border.color: Config.surface2Color
         border.width: 1
 
         // Entry animation
@@ -189,6 +210,7 @@ PanelWindow {
             }
         }
     }
+    } // End PanelWindow
 
     // ======================================================================
     // Inline component: section with title + keybind rows

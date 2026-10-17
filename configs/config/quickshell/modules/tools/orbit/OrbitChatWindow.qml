@@ -4,6 +4,8 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell.Io
+import Quickshell
+import Quickshell.Wayland
 import qs.config
 import qs.services
 import qs.components
@@ -14,14 +16,44 @@ QsPopupWindow {
     popupWidth: 420
     popupMaxHeight: 700
     anchorSide: "right"
-    moduleName: "Orbit"
+    moduleName: "OrbitChat"
     contentImplicitHeight: showSettings
         ? Math.min(settingsFlick.contentHeight + 8, 680)
         : popupMaxHeight - 32
 
+    keyboardFocus: WlrKeyboardFocus.OnDemand
+    focusTarget: root.preferredFocusTarget() || null
+
     readonly property bool showSettings: AiService.showSettings
     property bool followLatest: true
     readonly property var inputFieldItem: inputField
+
+    function preferredFocusTarget() {
+        if (root.showSettings) {
+            if (typeof urlField !== "undefined" && urlField.visible)
+                return urlField;
+            if (typeof keyField !== "undefined" && keyField.visible)
+                return keyField;
+            return null;
+        }
+        return root.inputFieldItem || null;
+    }
+
+    function requestPreferredFocus() {
+        focusTimer.restart();
+    }
+
+    Timer {
+        id: focusTimer
+        interval: 80
+        repeat: false
+
+        onTriggered: {
+            const target = root.preferredFocusTarget();
+            if (target)
+                target.forceActiveFocus();
+        }
+    }
 
     Component.onCompleted: {
         root.visible = AiService.windowVisible;
@@ -37,12 +69,16 @@ QsPopupWindow {
 
         if (visible && !showSettings) {
             Qt.callLater(() => {
-                if (root.inputFieldItem) {
+                if (root.inputFieldItem)
                     root.inputFieldItem.text = AiService.draftMessage;
-                    root.inputFieldItem.forceActiveFocus();
-                }
+                root.requestPreferredFocus();
             });
         }
+    }
+
+    onShowSettingsChanged: {
+        if (visible)
+            root.requestPreferredFocus();
     }
 
     Connections {
@@ -385,6 +421,7 @@ QsPopupWindow {
                         id: urlField
                         anchors.fill: parent
                         anchors.margins: 14
+                        activeFocusOnTab: true
                         text: AiService.openfangBaseUrl
                         onTextEdited: AiService.openfangBaseUrl = text
                         font.family: Config.font
@@ -460,6 +497,7 @@ QsPopupWindow {
                         id: keyField
                         anchors.fill: parent
                         anchors.margins: 14
+                        activeFocusOnTab: true
                         text: AiService.openfangApiKey
                         onTextEdited: AiService.openfangApiKey = text
                         echoMode: TextInput.Password
@@ -1368,8 +1406,8 @@ QsPopupWindow {
                                 onClicked: root.runFilePickerAndInsert()
                             }
 
-                            ToolTip {
-                                visible: attachHover.containsMouse
+                            QsToolTip {
+                                shown: attachHover.containsMouse
                                 text: "Adjuntar archivo"
                                 delay: 600
                             }
@@ -1406,8 +1444,8 @@ QsPopupWindow {
                                 onClicked: root.pasteFromClipboard()
                             }
 
-                            ToolTip {
-                                visible: pasteHover.containsMouse
+                            QsToolTip {
+                                shown: pasteHover.containsMouse
                                 text: "Pegar portapapeles"
                                 delay: 600
                             }
@@ -1422,6 +1460,8 @@ QsPopupWindow {
                                 id: inputField
                                 anchors.fill: parent
                                 anchors.rightMargin: 10
+                                focus: root.visible && !root.showSettings
+                                activeFocusOnTab: true
                                 font.family: Config.font
                                 font.pixelSize: Config.fontSizeSmall
                                 color: Config.textColor
@@ -1433,7 +1473,10 @@ QsPopupWindow {
                                 onTextChanged: AiService.setDraftMessage(text)
 
                                 Keys.onPressed: event => {
-                                    if (event.key === Qt.Key_Return && !(event.modifiers & Qt.ShiftModifier)) {
+                                    if (event.key === Qt.Key_Escape) {
+                                        event.accepted = true;
+                                        root.closeWindow();
+                                    } else if (event.key === Qt.Key_Return && !(event.modifiers & Qt.ShiftModifier)) {
                                         event.accepted = true;
                                         root.sendCurrentMessage();
                                     }

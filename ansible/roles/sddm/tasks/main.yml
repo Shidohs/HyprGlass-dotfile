@@ -1,0 +1,46 @@
+---
+- name: Ensure SDDM is installed
+  become: true
+  pacman:
+    name: sddm
+    state: present
+
+- name: Create sddm themes directory
+  become: true
+  file:
+    path: /usr/share/sddm/themes/
+    state: directory
+    mode: '0755'
+
+- name: Check if Astronaut theme exists
+  stat:
+    path: /usr/share/sddm/themes/sddm-astronaut-theme
+  register: sddm_theme
+
+- name: Clone SDDM Astronaut Theme
+  become: true
+  git:
+    repo: 'https://github.com/Keyitdev/sddm-astronaut-theme.git'
+    dest: /usr/share/sddm/themes/sddm-astronaut-theme
+  when: not sddm_theme.stat.exists
+
+- name: Ensure sddm.conf.d exists
+  become: true
+  file:
+    path: /etc/sddm.conf.d/
+    state: directory
+    mode: '0755'
+
+- name: Apply SDDM theme config
+  become: true
+  copy:
+    content: |
+      [Theme]
+      Current=sddm-astronaut-theme
+    dest: /etc/sddm.conf.d/theme.conf
+
+- name: Enable SDDM service
+  become: true
+  systemd:
+    name: sddm
+    enabled: yes

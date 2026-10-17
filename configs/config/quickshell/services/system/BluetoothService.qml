@@ -53,6 +53,12 @@ Singleton {
     // Scan countdown in seconds (20 → 0), shown in the UI
     property int scanTimeRemaining: 0
 
+    readonly property string iconSource: {
+        if (!isPowered) return "bluetooth-disabled-symbolic";
+        if (devicesList.some(dev => dev.connected)) return "bluetooth-active-symbolic";
+        return "bluetooth-paired-symbolic";
+    }
+
     // Icon for the current bluetooth status
     readonly property string systemIcon: {
         if (!isPowered)

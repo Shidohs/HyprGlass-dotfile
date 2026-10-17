@@ -29,6 +29,10 @@ cliphist
 quickshell
 rofi-wayland
 fuzzel
+gtk4
+gtk4-layer-shell
+rust
+cargo
 
 # Utilities (System)
 udiskie

@@ -10,7 +10,7 @@ BarButton {
     active: ClipboardService.visible
     contentItem: icon
     onClicked: {
-        pulseAnimation.start()
+        pulseAnimation.restart()
         ClipboardService.toggle()
     }
 

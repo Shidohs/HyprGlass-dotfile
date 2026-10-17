@@ -5,427 +5,286 @@ import Quickshell
 import Quickshell.Hyprland
 import qs.config
 
+// ============================================================================
+// Workspaces — módulo de barra optimizado para Hyprland
+//
+// Diseño:
+//  • Se suscribe a Hyprland.workspaces (modelo reactivo nativo) y al evento
+//    IPC "activespecial" para special workspaces.
+//  • updateModel() hace un diff mínimo sobre workspacesModel: solo inserta /
+//    elimina / mueve — nunca recrea el modelo completo.
+//  • focusWorkspace y toggleSpecial despachan directamente a Hyprland.dispatch.
+//  • No hay timers, ni polling, ni copias de objetos innecesarias.
+// ============================================================================
+
 Item {
     id: root
 
-    // --- Sizing Properties ---
-    readonly property int itemWidth: 34
-    readonly property int itemHeight: 34
-    readonly property int activeWidth: 54
-    readonly property int activeHeight: 34
-    readonly property int itemSpacing: 6
+    // -------------------------------------------------------------------------
+    // Tamaños
+    // -------------------------------------------------------------------------
+    readonly property int itemW:   34
+    readonly property int itemH:   34
+    readonly property int activeW: 54
+    readonly property int activeH: 34
+    readonly property int spacing: 6
 
-    // --- Visible Workspaces Model ---
-    ListModel {
-        id: workspacesModel
+    implicitWidth:  isSpecial ? specialIndicator.width : workspacesRow.implicitWidth
+    implicitHeight: activeH
+
+    // -------------------------------------------------------------------------
+    // Monitor actual (instancia por pantalla gracias a Variants en Bar.qml)
+    // -------------------------------------------------------------------------
+    readonly property var parentWindow:  QsWindow.window
+    readonly property var parentScreen:  parentWindow?.screen ?? null
+
+    readonly property var monitor: {
+        if (!Hyprland) return null;
+        return (parentScreen ? Hyprland.monitorFor(parentScreen) : null)
+               ?? Hyprland.focusedMonitor
+               ?? null;
+    }
+    readonly property string monitorName: monitor?.name ?? ""
+
+    // -------------------------------------------------------------------------
+    // Workspace activo en este monitor
+    // -------------------------------------------------------------------------
+    readonly property int activeId: {
+        const id = Number(monitor?.activeWorkspace?.id ?? 0);
+        return id > 0 ? id : 1;
     }
 
-    function syncWorkspacesModel() {
-        let ids = [];
-        if (activeId > 0) {
-            ids.push(activeId);
+    // -------------------------------------------------------------------------
+    // Special workspace
+    // -------------------------------------------------------------------------
+    property string _specialName: ""          // nombre raw del IPC
+
+    readonly property bool   isSpecial:     _specialName !== ""
+    readonly property string specialClean:  _specialName.startsWith("special:")
+                                                ? _specialName.slice(8)
+                                                : _specialName
+
+    // Tabla de special workspaces conocidos
+    readonly property var specialMeta: ({
+        "whatsapp": { icon: "󰖣", color: Config.successColor,  label: "WhatsApp" },
+        "spotify":  { icon: "󰓇", color: Config.accentColor,   label: "Music"    },
+        "magic":    { icon: "󰀘", color: Config.warningColor,  label: "Magic"    }
+    })
+
+    // Caché para evitar flash al salir del special workspace
+    property string _cachedIcon:  "󰀘"
+    property string _cachedLabel: ""
+    property color  _cachedColor: Config.accentColor
+
+    readonly property var _specialConfig: {
+        if (!isSpecial) return null;
+        return specialMeta[specialClean] ?? {
+            icon:  "󰀘",
+            color: Config.accentColor,
+            label: specialClean.charAt(0).toUpperCase() + specialClean.slice(1)
+        };
+    }
+    on_SpecialConfigChanged: {
+        if (_specialConfig) {
+            _cachedIcon  = _specialConfig.icon;
+            _cachedLabel = _specialConfig.label;
+            _cachedColor = _specialConfig.color;
         }
+    }
 
-        for (let wsId in occupiedWorkspaces) {
-            let id = parseInt(wsId);
-            if (id > 0 && id !== activeId && occupiedWorkspaces[wsId] === true)
-                ids.push(id);
-        }
+    // -------------------------------------------------------------------------
+    // Modelo de workspaces visibles  (activo + ocupados, ordenados)
+    // -------------------------------------------------------------------------
+    ListModel { id: workspacesModel }
 
-        ids.sort((a, b) => a - b);
+    // Recalcula el modelo con diff mínimo
+    function updateModel() {
+        if (!Hyprland?.workspaces) return;
 
-        for (let i = workspacesModel.count - 1; i >= 0; i--) {
-            if (!ids.includes(workspacesModel.get(i).workspaceId)) {
-                workspacesModel.remove(i);
+        // Construye lista de ids: el activo + los que tienen ventanas
+        const active = root.activeId;
+        const seen   = new Set();
+        const ids    = [];
+
+        // Siempre incluir el activo
+        if (active > 0) { seen.add(active); ids.push(active); }
+
+        for (const ws of Hyprland.workspaces.values) {
+            if (!ws || ws.id <= 0) continue;
+            if (!seen.has(ws.id)) {
+                seen.add(ws.id);
+                ids.push(ws.id);
             }
         }
+        ids.sort((a, b) => a - b);
 
+        // --- diff: eliminar los que ya no existen ---
+        for (let i = workspacesModel.count - 1; i >= 0; i--) {
+            if (!ids.includes(workspacesModel.get(i).workspaceId))
+                workspacesModel.remove(i);
+        }
+
+        // --- diff: insertar / reordenar ---
         for (let i = 0; i < ids.length; i++) {
-            let targetId = ids[i];
+            const tid = ids[i];
             let found = false;
             for (let j = 0; j < workspacesModel.count; j++) {
-                if (workspacesModel.get(j).workspaceId === targetId) {
+                if (workspacesModel.get(j).workspaceId === tid) {
+                    if (j !== i) workspacesModel.move(j, i, 1);
                     found = true;
-                    if (j !== i) {
-                        workspacesModel.move(j, i, 1);
-                    }
                     break;
                 }
             }
-            if (!found) {
-                workspacesModel.insert(i, { workspaceId: targetId });
-            }
+            if (!found) workspacesModel.insert(i, { workspaceId: tid });
         }
     }
 
-    onActiveIdChanged: syncWorkspacesModel()
-    onOccupiedWorkspacesChanged: syncWorkspacesModel()
+    // Re-sincronizar cuando cambia el workspace activo o la lista de workspaces
+    onActiveIdChanged:                 updateModel()
+    onMonitorChanged:                  updateModel()
+    Component.onCompleted:             updateModel()
 
-    // --- Monitor Logic ---
-    readonly property var parentWindow: QsWindow.window
-    readonly property var parentScreen: parentWindow?.screen ?? null
-
-    property var currentMonitor: {
-        if (!Hyprland)
-            return null;
-        return (parentScreen ? Hyprland.monitorFor(parentScreen) : null) ?? Hyprland.focusedMonitor ?? null;
+    Connections {
+        target: Hyprland?.workspaces ?? null
+        function onValuesChanged() { root.updateModel(); }
     }
 
-    readonly property string monitorName: currentMonitor?.name ?? ""
-
-    // --- Special Workspace Detection ---
-    property string manualSpecialName: ""
-    readonly property bool isSpecialWorkspace: manualSpecialName !== ""
-
-    readonly property string specialWorkspaceName: {
-        if (!isSpecialWorkspace)
-            return "";
-        return manualSpecialName.startsWith("special:") ? manualSpecialName.substring(8) : manualSpecialName;
-    }
-
-    // --- Normal Workspace Math ---
-    property int activeId: 1
-
-    implicitWidth: isSpecialWorkspace ? specialIndicator.width : workspacesRow.implicitWidth
-    implicitHeight: activeHeight
-
-    // --- Special Workspaces Config ---
-    readonly property var specialWorkspaces: ({
-            "whatsapp": {
-                icon: "󰖣",
-                color: Config.successColor,
-                name: "WhatsApp"
-            },
-            "spotify": {
-                icon: "󰓇",
-                color: Config.accentColor,
-                name: "Music"
-            },
-            "magic": {
-                icon: "󰀘",
-                color: Config.warningColor,
-                name: "Magic"
-            }
-        })
-
-    // --- Cache Logic to prevent flashing ---
-    property string cachedIcon: "󰀘"
-    property string cachedName: ""
-    property color cachedColor: Config.accentColor
-
-    readonly property var currentSpecialConfig: {
-        if (!isSpecialWorkspace)
-            return null;
-        return specialWorkspaces[specialWorkspaceName] ?? {
-            icon: "󰀘",
-            color: Config.accentColor,
-            name: specialWorkspaceName.charAt(0).toUpperCase() + specialWorkspaceName.slice(1)
-        };
-    }
-
-    // Updates the cache only when there is a valid workspace
-    onCurrentSpecialConfigChanged: {
-        if (currentSpecialConfig) {
-            cachedIcon = currentSpecialConfig.icon;
-            cachedName = currentSpecialConfig.name;
-            cachedColor = currentSpecialConfig.color;
-        }
-    }
-
-    // --- Occupied Workspaces ---
-    property var occupiedWorkspaces: ({})
-
-    function parseWorkspaceId(data) {
-        const value = String(data ?? "");
-        const firstPart = value.split(",")[0];
-        const parsedId = Number(firstPart);
-        return parsedId > 0 ? parsedId : 0;
-    }
-
-    function setWorkspaceOccupied(workspaceId, occupied) {
-        const targetId = Number(workspaceId);
-        if (!Number.isInteger(targetId) || targetId <= 0)
-            return;
-
-        const key = String(targetId);
-        const nextState = occupied === true;
-        const currentState = occupiedWorkspaces[key] === true;
-        if (currentState === nextState)
-            return;
-
-        const nextWorkspaces = Object.assign({}, occupiedWorkspaces);
-        if (nextState)
-            nextWorkspaces[key] = true;
-        else
-            delete nextWorkspaces[key];
-
-        occupiedWorkspaces = nextWorkspaces;
-    }
-
-    function syncActiveWorkspace() {
-        const nextId = Number(root.currentMonitor?.activeWorkspace?.id ?? 0);
-        const normalizedId = nextId > 0 ? nextId : 1;
-
-        if (root.activeId !== normalizedId)
-            root.activeId = normalizedId;
-    }
-
-    function activateWorkspace(workspaceId) {
-        const targetId = Number(workspaceId);
-        if (!Number.isInteger(targetId) || targetId <= 0)
-            return;
-
-        manualSpecialName = "";
-        if (activeId !== targetId)
-            activeId = targetId;
-        setWorkspaceOccupied(targetId, true);
-    }
-
-    function focusWorkspace(workspaceId) {
-        const targetId = Number(workspaceId);
-        if (!Number.isInteger(targetId) || targetId <= 0)
-            return;
-
-        const currentId = root.activeId;
-        if (currentId === targetId)
-            return;
-
-        Hyprland.dispatch("focusworkspaceoncurrentmonitor " + targetId);
-    }
-
-    function updateOccupiedWorkspaces() {
-        if (!Hyprland || !Hyprland.workspaces)
-            return;
-        let newObj = {};
-        for (let ws of Hyprland.workspaces.values) {
-            if (ws && ws.id > 0)
-                newObj[ws.id] = true;
-        }
-        occupiedWorkspaces = newObj;
-    }
-
-    onCurrentMonitorChanged: {
-        root.syncActiveWorkspace();
-        root.updateOccupiedWorkspaces();
-    }
-
-    Component.onCompleted: {
-        root.syncActiveWorkspace();
-        root.updateOccupiedWorkspaces();
-    }
-
-    // --- Event Handling ---
+    // -------------------------------------------------------------------------
+    // IPC — solo gestiona "activespecial" (el resto lo cubre el modelo nativo)
+    // -------------------------------------------------------------------------
     Connections {
         target: Hyprland
         function onRawEvent(event) {
-            if (!event)
-                return;
+            if (!event) return;
+
             if (event.name === "activespecial") {
-                let parts = event.data.split(',');
-                let wsName = parts[0] || "";
-                let targetMonitor = parts[1] || "";
-                if (targetMonitor === "" || targetMonitor === root.monitorName) {
-                    root.manualSpecialName = wsName;
-                }
-            }
-            if (event.name === "workspace" || event.name === "workspacev2")
-                root.activateWorkspace(root.parseWorkspaceId(event.data));
-
-            if (event.name === "focusedmonv2") {
-                const parts = String(event.data ?? "").split(",");
-                const targetMonitor = parts[0] || "";
-                const workspaceId = Number(parts[1] || 0);
-                if (targetMonitor === root.monitorName)
-                    root.activateWorkspace(workspaceId);
-            }
-
-            if (event.name === "createworkspace" || event.name === "createworkspacev2")
-                root.setWorkspaceOccupied(root.parseWorkspaceId(event.data), true);
-
-            if (event.name === "destroyworkspace" || event.name === "destroyworkspacev2")
-                root.setWorkspaceOccupied(root.parseWorkspaceId(event.data), false);
-
-            if (event.name === "openwindow" || event.name === "openwindowv2") {
-                const parts = String(event.data ?? "").split(",");
-                if (parts.length > 1)
-                    root.setWorkspaceOccupied(Number(parts[1]), true);
+                const parts      = event.data.split(",");
+                const wsName     = parts[0] ?? "";
+                const evMonitor  = parts[1] ?? "";
+                // Aplica solo si es este monitor o sin monitor específico
+                if (evMonitor === "" || evMonitor === root.monitorName)
+                    root._specialName = wsName;
             }
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Acciones
+    // -------------------------------------------------------------------------
+    function focusWorkspace(id) {
+        if (id <= 0 || id === root.activeId) return;
+        Hyprland.dispatch("focusworkspaceoncurrentmonitor " + id);
+    }
+
+    function toggleSpecial() {
+        if (root.specialClean)
+            Hyprland.dispatch("togglespecialworkspace " + root.specialClean);
+    }
+
     // =========================================================================
-    // SPECIAL WORKSPACE INDICATOR
+    // UI — SPECIAL WORKSPACE INDICATOR
     // =========================================================================
     Rectangle {
         id: specialIndicator
+        anchors.centerIn:             parent
+        anchors.verticalCenterOffset: isSpecial ? 0 : 5
+
         visible: opacity > 0
-        anchors.centerIn: parent
+        opacity: isSpecial ? (specialHover.hovered ? 0.8 : 1.0) : 0
+        scale:   isSpecial ? 1.0 : 0.9
 
-        // Opacity depends only on whether the state is special
-        opacity: root.isSpecialWorkspace ? (specialHover.hovered ? 0.8 : 1.0) : 0
-
-        scale: root.isSpecialWorkspace ? 1.0 : 0.9
-        property int yOffset: root.isSpecialWorkspace ? 0 : 5
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: yOffset
-
-        width: specialContent.width + Config.padding * 3
-        height: root.activeHeight
+        width:  specialRow.implicitWidth + Config.padding * 3
+        height: root.activeH
         radius: Config.radius
 
-        color: root.cachedColor
+        color:        root._cachedColor
         border.width: 1
 
-        Behavior on opacity {
-            NumberAnimation {
-                duration: Config.animDurationShort
-            }
-        }
-        Behavior on scale {
-            NumberAnimation {
-                duration: Config.animDuration
-                easing.type: Easing.OutCubic
-            }
-        }
-        Behavior on anchors.verticalCenterOffset {
-            NumberAnimation {
-                duration: Config.animDuration
-                easing.type: Easing.OutCubic
-            }
-        }
-        Behavior on color {
-            ColorAnimation {
-                duration: Config.animDuration
-            }
-        }
+        Behavior on opacity { NumberAnimation { duration: Config.animDurationShort } }
+        Behavior on scale   { NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutCubic } }
+        Behavior on anchors.verticalCenterOffset { NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutCubic } }
+        Behavior on color   { ColorAnimation   { duration: Config.animDuration } }
 
         Row {
-            id: specialContent
+            id: specialRow
             anchors.centerIn: parent
             spacing: Config.padding * 0.8
 
             Text {
-                // Uses the cached icon
-                text: root.cachedIcon
-                font {
-                    family: Config.font
-                    pixelSize: Config.fontSizeLarge
-                }
+                text:  root._cachedIcon
                 color: Config.textReverseColor
+                font { family: Config.font; pixelSize: Config.fontSizeLarge }
                 anchors.verticalCenter: parent.verticalCenter
             }
-
             Text {
-                // Uses the cached name
-                text: root.cachedName
-                font {
-                    family: Config.font
-                    bold: true
-                    pixelSize: Config.fontSizeNormal
-                }
+                text:  root._cachedLabel
                 color: Config.textReverseColor
+                font { family: Config.font; bold: true; pixelSize: Config.fontSizeNormal }
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
 
-        TapHandler {
-            onTapped: {
-                if (root.specialWorkspaceName)
-                    Hyprland.dispatch("togglespecialworkspace " + root.specialWorkspaceName);
-            }
-        }
-        HoverHandler {
-            id: specialHover
-            cursorShape: Qt.PointingHandCursor
-        }
+        TapHandler { onTapped: root.toggleSpecial() }
+        HoverHandler { id: specialHover; cursorShape: Qt.PointingHandCursor }
     }
 
     // =========================================================================
-    // NORMAL WORKSPACES LIST
+    // UI — WORKSPACES NORMALES
     // =========================================================================
     Item {
         id: workspacesContainer
-        visible: !root.isSpecialWorkspace
-        opacity: visible ? 1 : 0
-        width: parent.width
-        height: parent.height
         anchors.centerIn: parent
-        clip: false
+        width:  workspacesRow.implicitWidth
+        height: parent.height
 
-        Item {
-            id: container
-            width: workspacesRow.implicitWidth
-            height: parent.height
+        visible: !root.isSpecial
+        opacity: visible ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: Config.animDurationShort } }
 
-            Row {
-                id: workspacesRow
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: root.itemSpacing
+        Row {
+            id: workspacesRow
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: root.spacing
 
-                Repeater {
-                    model: workspacesModel
-                    delegate: Rectangle {
-                        id: workspaceItem
-                        // Since we append { workspaceId: X } to ListModel, it exposes workspaceId directly
-                        required property int workspaceId
-                        readonly property bool isActive: workspaceId === root.activeId
+            Repeater {
+                model: workspacesModel
 
-                        width: isActive ? root.activeWidth : root.itemWidth
-                        height: isActive ? root.activeHeight : root.itemHeight
-                        radius: width / 2.4
-                        color: isActive ? Config.accentColor : Config.surface2Color
-                        border.width: isActive ? 0 : 1
-                        border.color: Qt.alpha(Config.textColor, 0.2)
-                        opacity: workspaceHover.hovered ? 0.8 : 1.0
+                delegate: Rectangle {
+                    id: wsItem
+                    required property int workspaceId
+                    readonly property bool active: workspaceId === root.activeId
 
-                        Behavior on width {
-                            NumberAnimation {
-                                duration: Config.animDuration
-                                easing.type: Easing.OutExpo
-                            }
+                    width:  active ? root.activeW : root.itemW
+                    height: active ? root.activeH : root.itemH
+                    radius: width / 2.4
+
+                    color:        active ? Config.accentColor   : Config.surface2Color
+                    border.width: active ? 0 : 1
+                    border.color: Qt.alpha(Config.textColor, 0.2)
+                    opacity:      wsHover.hovered ? 0.8 : 1.0
+
+                    Behavior on width   { NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutExpo } }
+                    Behavior on color   { ColorAnimation  { duration: Config.animDuration } }
+                    Behavior on opacity { NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutExpo } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text:      wsItem.workspaceId
+                        color:     wsItem.active ? Config.textReverseColor : Config.textColor
+                        scale:     wsItem.active ? 1.0 : 0.92
+                        font {
+                            family:    Config.font
+                            pixelSize: Config.fontSizeLarge
+                            bold:      wsItem.active
                         }
-                        Behavior on color {
-                            ColorAnimation {
-                                duration: Config.animDuration
-                            }
-                        }
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: Config.animDuration
-                                easing.type: Easing.OutExpo
-                            }
-                        }
+                        Behavior on scale { NumberAnimation { duration: Config.animDuration; easing.type: Easing.OutBack } }
+                        Behavior on color { ColorAnimation  { duration: Config.animDuration } }
+                    }
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: workspaceItem.workspaceId
-                            font.family: Config.font
-                            font.pixelSize: Config.fontSizeLarge
-                            font.bold: workspaceItem.isActive
-                            color: workspaceItem.isActive ? Config.textReverseColor : Config.textColor
-                            scale: workspaceItem.isActive ? 1.0 : 0.92
-
-                            Behavior on scale {
-                                NumberAnimation {
-                                    duration: Config.animDuration
-                                    easing.type: Easing.OutBack
-                                }
-                            }
-                            Behavior on color {
-                                ColorAnimation {
-                                    duration: Config.animDuration
-                                }
-                            }
-                        }
-
-                        TapHandler {
-                            onTapped: root.focusWorkspace(workspaceItem.workspaceId)
-                        }
-
-                        HoverHandler {
-                            id: workspaceHover
-                            cursorShape: !workspaceItem.isActive ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        }
+                    TapHandler { onTapped: root.focusWorkspace(wsItem.workspaceId) }
+                    HoverHandler {
+                        id: wsHover
+                        cursorShape: wsItem.active ? Qt.ArrowCursor : Qt.PointingHandCursor
                     }
                 }
             }

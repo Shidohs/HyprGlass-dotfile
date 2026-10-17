@@ -4,7 +4,7 @@ pragma ComponentBehavior: Bound
 // shell.qml — punto de entrada principal del shell.
 //
 // Módulos lazy-loaded (se activan por flags en sus servicios):
-//   NotificationService.activePopupCount > 0  → NotificationOverlay
+
 //   PowerService.overlayVisible               → PowerOverlay
 //   LauncherService.visible                   → Launcher
 //   OsdService.visible                        → OsdOverlay
@@ -18,12 +18,10 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.services
 import "./modules/shell/bar/"
 import "./modules/tools/orbit/"
-import "./modules/appearance/screenshot/"
 
 ShellRoot {
     id: root
@@ -33,10 +31,122 @@ ShellRoot {
     // =========================================================================
 
     property bool screenshotActive: false
-    
+    readonly property bool hyprlandGlobalShortcutsAvailable: (Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || "") !== ""
+    readonly property string commandRuntimeDir: {
+        const runtimeDir = Quickshell.env("XDG_RUNTIME_DIR");
+        if (runtimeDir)
+            return runtimeDir;
+        return Quickshell.env("HOME") + "/.config/hypr/externals/quickshell/data/runtime";
+    }
+    readonly property string commandFilePath: commandRuntimeDir + "/quickshell-command"
+    property string commandWatchPath: ""
+    property string lastExternalCommandPayload: ""
+    property bool commandReadPending: false
+    readonly property bool debugLogging: false
+
     // ARCHITECTURE FIX: Limit bluetooth agent restart attempts
     property int bluetoothCrashCount: 0
     readonly property int maxBluetoothCrashes: 5
+
+    function _queueCommandRead() {
+        if (_readCommandFile.running) {
+            commandReadPending = true;
+            return;
+        }
+        _readCommandFile.running = true;
+    }
+
+    function _drainCommandRead() {
+        Qt.callLater(() => {
+            if (commandReadPending && !_readCommandFile.running) {
+                commandReadPending = false;
+                _readCommandFile.running = true;
+            }
+        });
+    }
+
+    Component.onCompleted: {
+        _prepareCommandFile.running = true;
+    }
+
+    Process {
+        id: _prepareCommandFile
+        command: ["bash", "-lc", "mkdir -p \"$1\" && touch \"$2\"", "qs-cmd-init", root.commandRuntimeDir, root.commandFilePath]
+
+        onExited: exitCode => {
+            if (exitCode === 0) {
+                root.commandWatchPath = root.commandFilePath;
+                root._queueCommandRead();
+            } else {
+                console.error("[Shell] Failed to initialize command file:", root.commandFilePath);
+            }
+        }
+    }
+
+    FileView {
+        id: commandWatcher
+        path: root.commandWatchPath
+        watchChanges: true
+        onFileChanged: root._queueCommandRead()
+    }
+
+    Process {
+        id: _readCommandFile
+        command: ["cat", root.commandFilePath]
+        property string _buf: ""
+
+        stdout: SplitParser {
+            onRead: data => _readCommandFile._buf += data
+        }
+
+        onStarted: _buf = ""
+
+        onExited: exitCode => {
+            if (exitCode !== 0) {
+                _buf = "";
+                root._drainCommandRead();
+                return;
+            }
+
+            const lines = _buf.trim().split("\n");
+            const payload = lines.length > 0 ? lines[lines.length - 1].trim() : "";
+            _buf = "";
+            if (!payload) {
+                root._drainCommandRead();
+                return;
+            }
+
+            if (payload === root.lastExternalCommandPayload) {
+                root._drainCommandRead();
+                return;
+            }
+            root.lastExternalCommandPayload = payload;
+
+            const command = payload.split(" ")[0];
+
+            switch (command) {
+            case "wallpaper_picker":
+                WallpaperService.show();
+                break;
+            case "app_launcher":
+                LauncherService.show();
+                break;
+            case "clipboard_history":
+                ClipboardService.toggle();
+                break;
+            case "keybinds_help":
+                keybindsLoader.toggle();
+                break;
+            case "take_screenshot":
+                root.screenshotActive = true;
+                break;
+            default:
+                console.warn("[Shell] Unknown external command:", command);
+            }
+
+            root._drainCommandRead();
+        }
+    }
 
     // =========================================================================
     // BLUETOOTH AGENT
@@ -50,7 +160,10 @@ ShellRoot {
         running: true
 
         stdout: SplitParser {
-            onRead: data => console.log("[BluetoothAgent]: " + data)
+            onRead: data => {
+                if (root.debugLogging)
+                    console.log("[BluetoothAgent]: " + data);
+            }
         }
         stderr: SplitParser {
             onRead: data => console.error("[BluetoothAgent]: " + data)
@@ -60,13 +173,13 @@ ShellRoot {
         onExited: (exitCode, exitStatus) => {
             if (exitCode !== 0) {
                 root.bluetoothCrashCount++;
-                
+
                 if (root.bluetoothCrashCount >= root.maxBluetoothCrashes) {
                     console.error("[BluetoothAgent] Max crash limit reached (" + root.maxBluetoothCrashes + "), disabling auto-restart");
                     OsdService.showMessage("🔴", "Bluetooth agent disabled (too many crashes)");
                     return;
                 }
-                
+
                 console.warn("[BluetoothAgent] Crash " + root.bluetoothCrashCount + "/" + root.maxBluetoothCrashes + ", exited with code " + exitCode + " — restarting in 3s");
                 bluetoothAgentRestartTimer.restart();
             } else {
@@ -87,6 +200,28 @@ ShellRoot {
     }
 
     // =========================================================================
+    // SWAYNC NOTIFICATION DAEMON
+    // =========================================================================
+
+    Process {
+        id: swayncDaemon
+        command: ["swaync"]
+        running: true
+
+        stderr: SplitParser {
+            onRead: data => {
+                if (root.debugLogging)
+                    console.log("[SwayNC]: " + data);
+            }
+        }
+
+        onExited: (exitCode, exitStatus) => {
+            if (root.debugLogging)
+                console.log("[SwayNC] exited with code " + exitCode);
+        }
+    }
+
+    // =========================================================================
     // UI COMPONENTS - LAZY LOADING
     // =========================================================================
 
@@ -97,21 +232,16 @@ ShellRoot {
         id: orbitLoader
         active: AiService.windowVisible
         source: "./modules/tools/orbit/OrbitChatWindow.qml"
-        
+
         onStatusChanged: {
-            if (status === Loader.Ready)
+            if (root.debugLogging && status === Loader.Ready)
                 console.log("[Shell] Orbit window loaded");
             else if (status === Loader.Error)
                 console.error("[Shell] Error loading Orbit: " + source);
         }
     }
 
-    // Notifications Overlay - Shows notification popups
-    Loader {
-        id: notificationLoader
-        active: NotificationService.activePopupCount > 0
-        source: "./modules/shell/notifications/NotificationOverlay.qml"
-    }
+
 
     // Power Overlay
     Loader {
@@ -120,7 +250,7 @@ ShellRoot {
         source: "./modules/shell/power/PowerOverlay.qml"
 
         onStatusChanged: {
-            if (status === Loader.Ready)
+            if (root.debugLogging && status === Loader.Ready)
                 console.log("[Shell] PowerOverlay loaded");
         }
     }
@@ -133,7 +263,8 @@ ShellRoot {
 
         onStatusChanged: {
             if (status === Loader.Ready) {
-                console.log("[Shell] ScreenshotManager loaded");
+                if (root.debugLogging)
+                    console.log("[Shell] ScreenshotManager loaded");
                 screenshotLoader.item.startCapture();
             }
         }
@@ -184,9 +315,6 @@ ShellRoot {
         id: clipboardLoader
         active: ClipboardService.visible
         source: "./modules/tools/clipboard/ClipboardHistory.qml"
-        
-        onActiveChanged: console.log("[Shell] Clipboard loader active:", active)
-        onStatusChanged: console.log("[Shell] Clipboard loader status:", status)
     }
 
     // Keybinds Overlay
@@ -224,131 +352,17 @@ ShellRoot {
     // GLOBAL SHORTCUTS
     // =========================================================================
 
-    // Shortcut: Screenshot (Print)
-    GlobalShortcut {
-        name: "take_screenshot"
-        description: "Screenshot capture"
+    Loader {
+        id: hyprlandShortcutsLoader
+        active: root.hyprlandGlobalShortcutsAvailable
+        source: "./modules/shell/shortcuts/HyprlandGlobalShortcuts.qml"
 
-        onPressed: {
-            console.log("[Shell] Screenshot requested");
-            root.screenshotActive = true;
+        onLoaded: {
+            if (item) {
+                item.shellRoot = root;
+                item.keybindsLoader = keybindsLoader;
+            }
         }
-    }
-
-    // Shortcut: Power Menu
-    GlobalShortcut {
-        name: "power_menu"
-        description: "Power menu"
-
-        onPressed: {
-            console.log("[Shell] Power menu requested");
-            PowerService.showOverlay();
-        }
-    }
-
-    // Shortcut: Launcher
-    GlobalShortcut {
-        name: "app_launcher"
-        description: "App Launcher"
-
-        onPressed: LauncherService.show()
-    }
-
-    GlobalShortcut {
-        name: "quick_settings"
-        description: "Quick Settings"
-
-        onPressed: QuickSettingsService.show("dashboard")
-    }
-
-    // Shortcut: Volume Up
-    GlobalShortcut {
-        name: "volume_up"
-        description: "Increase volume"
-
-        onPressed: {
-            AudioService.increaseVolume();
-            OsdService.showVolume(AudioService.volume, AudioService.muted);
-        }
-    }
-
-    // Shortcut: Volume Down
-    GlobalShortcut {
-        name: "volume_down"
-        description: "Decrease volume"
-
-        onPressed: {
-            AudioService.decreaseVolume();
-            OsdService.showVolume(AudioService.volume, AudioService.muted);
-        }
-    }
-
-    // Shortcut: Volume Mute
-    GlobalShortcut {
-        name: "volume_mute"
-        description: "Mute volume"
-
-        onPressed: {
-            AudioService.toggleMute();
-            OsdService.showVolume(AudioService.volume, AudioService.muted);
-        }
-    }
-
-    // Shortcut: Brightness Up
-    GlobalShortcut {
-        name: "brightness_up"
-        description: "Increase brightness"
-
-        onPressed: {
-            BrightnessService.increaseBrightness();
-            OsdService.showBrightness(BrightnessService.brightness);
-        }
-    }
-
-    // Shortcut: Brightness Down
-    GlobalShortcut {
-        name: "brightness_down"
-        description: "Decrease brightness"
-
-        onPressed: {
-            BrightnessService.decreaseBrightness();
-            OsdService.showBrightness(BrightnessService.brightness);
-        }
-    }
-
-    // Shortcut: Wallpaper Picker
-    GlobalShortcut {
-        name: "wallpaper_picker"
-        description: "Wallpaper picker"
-
-        onPressed: WallpaperService.toggle()
-    }
-
-    // Shortcut: Clipboard History
-    GlobalShortcut {
-        name: "clipboard_history"
-        description: "Clipboard history"
-
-        onPressed: {
-            console.log("[Shell] Clipboard shortcut pressed");
-            ClipboardService.toggle();
-        }
-    }
-
-    // Shortcut: Orbit
-    GlobalShortcut {
-        name: "orbit_assistant"
-        description: "Orbit assistant"
-
-        onPressed: AiService.toggleWindow()
-    }
-
-    // Shortcut: Keybinds Help
-    GlobalShortcut {
-        name: "keybinds_help"
-        description: "Keybinds help"
-
-        onPressed: keybindsLoader.toggle()
     }
 
     Connections {

@@ -1,0 +1,42 @@
+-- Hyprlock Configuration  (hyprlock.lua)
+
+local HOME = os.getenv("HOME")
+
+-- Fondo estilo glass con blur
+hl.background({
+    path         = HOME .. "/.local/state/hypr/wallpaper/lock-wallpaper",
+    blur_passes  = 3,
+    blur_size    = 7,
+    noise        = 0.02,
+    contrast     = 1.0,
+    brightness   = 0.9,
+    vibrancy     = 0.3,
+})
+
+-- Input de contraseña centrado
+hl.input_field({
+    size              = { w = 250, h = 60 },
+    outline_thickness = 3,
+    dots_size         = 0.2,
+    dots_spacing      = 0.3,
+    dots_center       = true,
+    fade_on_empty     = true,
+    font_family       = "JetBrainsMono Nerd Font",
+    inner_color       = "rgba(30, 30, 30, 0.4)",
+    outer_color       = "rgba(255, 255, 255, 0.2)",
+    placeholder_text  = "Password...",
+    position          = { x = 0, y = 100 },  -- Y=+100 desde centro vertical
+    halign            = "center",
+    valign            = "center",
+})
+
+-- Reloj dinámico en el centro
+hl.label({
+    text        = "$TIME",
+    font_family = "JetBrainsMono Nerd Font",
+    font_size   = 36,
+    position    = { x = 0, y = -100 },  -- Y=-100 desde centro vertical
+    halign      = "center",
+    valign      = "center",
+    color       = "rgba(255, 255, 255, 0.85)",
+})

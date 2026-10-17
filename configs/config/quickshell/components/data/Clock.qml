@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls
 import qs.components
 import qs.services
 import qs.config
@@ -22,7 +21,9 @@ BarButton {
         color: Config.textColor
     }
 
-    ToolTip.visible: root.hovered
-    ToolTip.text: TimeService.format("dddd, MMMM d, yyyy")
-    ToolTip.delay: 500
+    QsToolTip {
+        shown: root.hovered
+        text: TimeService.format("dddd, MMMM d, yyyy")
+        delay: 500
+    }
 }

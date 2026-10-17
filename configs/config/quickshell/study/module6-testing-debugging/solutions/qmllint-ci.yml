@@ -1,0 +1,47 @@
+name: QML Lint
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**/*.qml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**/*.qml'
+
+jobs:
+  qmllint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt and qmllint
+        run: |
+          sudo apt update
+          sudo apt install -y qt6-declarative-dev-tools qml6-module-qtquick
+
+      - name: Run qmllint on all QML files
+        run: |
+          exit_code=0
+          find configs/config/quickshell -name "*.qml" -print0 | while IFS= read -r -d '' file; do
+            if ! qmllint "$file" 2>&1; then
+              echo "::error file=$file::qmllint failed"
+              exit_code=1
+            fi
+          done
+          exit $exit_code
+
+      - name: Run qmllint with JSON output
+        if: always()
+        run: |
+          find configs/config/quickshell -name "*.qml" -exec qmllint --output-format json {} + > qmllint-report.json || true
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qmllint-report
+          path: qmllint-report.json

@@ -52,6 +52,16 @@ Item {
         return "'" + String(str).replace(/'/g, "'\\''") + "'";
     }
 
+    function _cloneJsonValue(value) {
+        if (value === undefined || value === null || typeof value !== "object")
+            return value;
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function _valuesEqual(a, b) {
+        return JSON.stringify(a) === JSON.stringify(b);
+    }
+
     function _loadCandidates() {
         const candidates = [];
         if (storePath)
@@ -91,22 +101,29 @@ Item {
     }
 
     function set(path, value) {
+        const nextValue = _cloneJsonValue(value);
+        if (_valuesEqual(get(path, undefined), nextValue))
+            return;
+
         const keys = path.split('.');
-        let current = state;
+        const nextState = _cloneJsonValue(root.state || ({})) || ({});
+        let current = nextState;
         for (let i = 0; i < keys.length - 1; i++) {
             const key = keys[i];
-            if (!(key in current) || typeof current[key] !== "object")
+            if (!(key in current) || current[key] === null || typeof current[key] !== "object" || Array.isArray(current[key]))
                 current[key] = {};
             current = current[key];
         }
-        current[keys[keys.length - 1]] = value;
+        current[keys[keys.length - 1]] = nextValue;
+        root.state = nextState;
         if (!isLoading)
             saveState();
     }
 
     function remove(path) {
         const keys = path.split('.');
-        let current = state;
+        const nextState = _cloneJsonValue(root.state || ({})) || ({});
+        let current = nextState;
         let parents = [];
 
         for (let i = 0; i < keys.length - 1; i++) {
@@ -132,6 +149,7 @@ Item {
                 break;
         }
 
+        root.state = nextState;
         if (!isLoading)
             saveState();
     }

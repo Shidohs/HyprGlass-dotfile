@@ -12,6 +12,37 @@ Column {
     property string content: ""
     property var webContext: null
     property var parts: MessageParts.parseMessageParts(content, webContext)
+    property var preparedParts: {
+        const sourceParts = root.parts || [];
+        const prepared = [];
+
+        for (let i = 0; i < sourceParts.length; i++) {
+            const part = sourceParts[i] || {};
+            const nextPart = Object.assign({}, part);
+
+            if (part.type === "table") {
+                nextPart.renderedHeaders = (part.headers || []).map(header => root.richText(header));
+                nextPart.renderedRows = (part.rows || []).map(row =>
+                    (row || []).map(cell => root.richText(cell))
+                );
+            } else if (part.type === "bullet_list" || part.type === "ordered_list") {
+                nextPart.renderedItems = (part.items || []).map(item => root.richText(item));
+            } else if (part.type === "web_context") {
+                nextPart.groupedSources = MessageParts.groupSources(part.sources || []).map(group => ({
+                    host: group.host || "otras",
+                    items: (group.items || []).map(item => Object.assign({}, item, {
+                        displayUrl: MessageParts.displayUrl(item.url || ""),
+                    })),
+                }));
+            } else if (part.type !== "code") {
+                nextPart.renderedText = root.richText(part.text || "");
+            }
+
+            prepared.push(nextPart);
+        }
+
+        return prepared;
+    }
     property color cardColor: Qt.alpha(Config.surface0Color, 0.96)
 
     signal openLink(string url)
@@ -30,7 +61,7 @@ Column {
     }
 
     Repeater {
-        model: root.parts
+        model: root.preparedParts
 
         delegate: Item {
             id: partItem
@@ -68,7 +99,7 @@ Column {
                 Text {
                     width: loader.width
                     textFormat: Text.RichText
-                    text: root.richText(partItem.modelData.text || "")
+                    text: partItem.modelData.renderedText || ""
                     font.family: Config.font
                     font.pixelSize: Config.fontSizeSmall
                     color: Config.textColor
@@ -94,7 +125,7 @@ Column {
                         anchors.fill: parent
                         anchors.margins: 8
                         textFormat: Text.RichText
-                        text: root.richText(partItem.modelData.text || "")
+                        text: partItem.modelData.renderedText || ""
                         font.family: Config.font
                         font.pixelSize: Config.fontSizeSmall
                         color: Config.subtextColor
@@ -135,7 +166,7 @@ Column {
                             Text {
                                 Layout.fillWidth: true
                                 textFormat: Text.RichText
-                                text: root.richText(modelData)
+                                text: modelData
                                 font.family: Config.font
                                 font.pixelSize: Config.fontSizeSmall
                                 color: Config.textColor
@@ -189,7 +220,7 @@ Column {
                                 spacing: 6
 
                                 Repeater {
-                                    model: partItem.modelData.headers || []
+                                    model: partItem.modelData.renderedHeaders || []
 
                                     delegate: Rectangle {
                                         required property var modelData
@@ -205,7 +236,7 @@ Column {
                                             anchors.fill: parent
                                             anchors.margins: 7
                                             textFormat: Text.RichText
-                                            text: root.richText(modelData)
+                                            text: modelData
                                             font.family: Config.font
                                             font.pixelSize: 10
                                             font.bold: true
@@ -219,7 +250,7 @@ Column {
                             }
 
                             Repeater {
-                                model: partItem.modelData.rows || []
+                                model: partItem.modelData.renderedRows || []
 
                                 delegate: Row {
                                     required property var modelData
@@ -243,7 +274,7 @@ Column {
                                                 anchors.fill: parent
                                                 anchors.margins: 7
                                                 textFormat: Text.RichText
-                                                text: root.richText(modelData)
+                                                text: modelData
                                                 font.family: Config.font
                                                 font.pixelSize: 10
                                                 color: Config.textColor
@@ -399,7 +430,7 @@ Column {
                         }
 
                         Repeater {
-                            model: MessageParts.groupSources(partItem.modelData.sources || [])
+                            model: partItem.modelData.groupedSources || []
 
                             delegate: Rectangle {
                                 required property var modelData
@@ -481,7 +512,7 @@ Column {
 
                                             Text {
                                                 width: parent.width
-                                                text: "Abrir fuente · " + MessageParts.displayUrl(modelData.url || "")
+                                                text: "Abrir fuente · " + (modelData.displayUrl || "")
                                                 visible: text !== ""
                                                 font.family: Config.font
                                                 font.pixelSize: 9

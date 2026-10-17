@@ -5,54 +5,97 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.components
 import qs.services
 import qs.config
 
-PanelWindow {
+Scope {
     id: root
-
-    visible: WallpaperService.pickerVisible
-
-    anchors {
-        top: true
-        bottom: true
-        left: true
-        right: true
-    }
-
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-    WlrLayershell.namespace: "qs_modules"
-
-    color: "transparent"
 
     // Whether we're in a theme's wallpaper page
     readonly property bool inThemePage: WallpaperService.currentCategory === "themes" && WallpaperService.themeFilter !== ""
     readonly property bool isThemesOverview: WallpaperService.currentCategory === "themes" && WallpaperService.themeFilter === ""
 
-    // Click on background closes or clears selection
-    MouseArea {
-        anchors.fill: parent
-        onClicked: {
-            if (WallpaperService.selectedCount > 0) {
-                WallpaperService.clearSelection();
-            } else {
-                WallpaperService.hide();
+    function handleWallpaperClick(isOverview, itemPath, mouseModifiers) {
+        if (isOverview) {
+            WallpaperService.themeFilter = itemPath;
+            return;
+        }
+
+        if (mouseModifiers & Qt.ControlModifier)
+            WallpaperService.toggleSelection(itemPath);
+        else
+            WallpaperService.selectOnly(itemPath);
+    }
+
+    function handleWallpaperActivate(isOverview, itemPath) {
+        if (isOverview) {
+            WallpaperService.themeFilter = itemPath;
+        } else if (root.inThemePage) {
+            WallpaperService.setActiveThemeWallpaper(itemPath, WallpaperService.themeFilter);
+        } else {
+            WallpaperService.setWallpaper(itemPath);
+        }
+    }
+
+    // 1) The full-screen background layer (transparent, no blur if niri is configured correctly)
+    PanelWindow {
+        id: dimLayer
+        visible: WallpaperService.pickerVisible
+
+        anchors {
+            top: true
+            bottom: true
+            left: true
+            right: true
+        }
+
+        WlrLayershell.layer: WlrLayer.Top
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        WlrLayershell.namespace: "qs_fullscreen"
+
+        color: "transparent"
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {
+                if (WallpaperService.selectedCount > 0) {
+                    WallpaperService.clearSelection();
+                } else {
+                    WallpaperService.hide();
+                }
             }
         }
     }
 
-    // Main content
-    Rectangle {
-        id: content
-        anchors.centerIn: parent
-        width: Math.min(900, root.width - 100)
-        height: Math.min(650, root.height - 100)
-        radius: Config.radiusLarge
-        color: Config.backgroundTransparentColor
-        border.color: Qt.alpha(Config.accentColor, 0.2)
+    // 2) The actual popup layer (centered, with blur via qs_popup)
+    PanelWindow {
+        id: popupLayer
+
+        visible: WallpaperService.pickerVisible
+
+        // A centered window (no anchors, explicit size)
+        implicitWidth: Math.min(900, Quickshell.screens[0].width - 100)
+        implicitHeight: Math.min(650, Quickshell.screens[0].height - 100)
+
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+        WlrLayershell.namespace: "qs_popup"
+        WlrLayershell.exclusiveZone: -1
+        exclusionMode: ExclusionMode.Ignore
+
+        color: "transparent"
+        mask: Region {
+            item: content
+        }
+
+        // Main content
+        Rectangle {
+            id: content
+            anchors.fill: parent
+            radius: Config.radiusLarge
+        color: Config.moduleBackgroundColor
+        border.color: Config.surface2Color
         border.width: 1
 
         // Entry animation
@@ -373,6 +416,7 @@ PanelWindow {
                 Layout.fillHeight: true
 
                 clip: true
+                reuseItems: true
 
                 cellWidth: 215
                 cellHeight: 150
@@ -399,13 +443,7 @@ PanelWindow {
                     property bool isFav: WallpaperService.isFavorite(wallpaperPath)
                     property bool isActiveForTheme: root.inThemePage && WallpaperService.isActiveThemeWallpaper(modelData, WallpaperService.themeFilter)
                     property string overviewThemeName: isOverview ? modelData : ""
-                    property string displayName: {
-                        if (isOverview)
-                            return modelData;
-                        const name = WallpaperService.fileName(modelData);
-                        const dot = name.lastIndexOf(".");
-                        return dot > 0 ? name.substring(0, dot) : name;
-                    }
+                    property string displayName: isOverview ? modelData : WallpaperService.displayName(modelData)
 
                     Rectangle {
                         id: card
@@ -438,26 +476,10 @@ PanelWindow {
                             acceptedButtons: Qt.LeftButton
 
                             onClicked: mouse => {
-                                if (wallpaperItem.isOverview) {
-                                    WallpaperService.themeFilter = wallpaperItem.modelData;
-                                    return;
-                                }
-                                if (mouse.modifiers & Qt.ControlModifier) {
-                                    WallpaperService.toggleSelection(wallpaperItem.modelData);
-                                } else {
-                                    WallpaperService.selectOnly(wallpaperItem.modelData);
-                                }
+                                root.handleWallpaperClick(wallpaperItem.isOverview, wallpaperItem.modelData, mouse.modifiers);
                             }
 
-                            onDoubleClicked: {
-                                if (wallpaperItem.isOverview) {
-                                    WallpaperService.themeFilter = wallpaperItem.modelData;
-                                } else if (root.inThemePage) {
-                                    WallpaperService.setActiveThemeWallpaper(wallpaperItem.modelData, WallpaperService.themeFilter);
-                                } else {
-                                    WallpaperService.setWallpaper(wallpaperItem.modelData);
-                                }
-                            }
+                            onDoubleClicked: root.handleWallpaperActivate(wallpaperItem.isOverview, wallpaperItem.modelData)
                         }
 
                         // Rounded clip thumbnail
@@ -636,26 +658,10 @@ PanelWindow {
                             acceptedButtons: Qt.LeftButton
 
                             onClicked: mouse => {
-                                if (wallpaperItem.isOverview) {
-                                    WallpaperService.themeFilter = wallpaperItem.modelData;
-                                    return;
-                                }
-                                if (mouse.modifiers & Qt.ControlModifier) {
-                                    WallpaperService.toggleSelection(wallpaperItem.modelData);
-                                } else {
-                                    WallpaperService.selectOnly(wallpaperItem.modelData);
-                                }
+                                root.handleWallpaperClick(wallpaperItem.isOverview, wallpaperItem.modelData, mouse.modifiers);
                             }
 
-                            onDoubleClicked: {
-                                if (wallpaperItem.isOverview) {
-                                    WallpaperService.themeFilter = wallpaperItem.modelData;
-                                } else if (root.inThemePage) {
-                                    WallpaperService.setActiveThemeWallpaper(wallpaperItem.modelData, WallpaperService.themeFilter);
-                                } else {
-                                    WallpaperService.setWallpaper(wallpaperItem.modelData);
-                                }
-                            }
+                            onDoubleClicked: root.handleWallpaperActivate(wallpaperItem.isOverview, wallpaperItem.modelData)
                         }
                     }
                 }
@@ -992,11 +998,5 @@ PanelWindow {
 
         Component.onCompleted: forceActiveFocus()
     }
-
-    // Focus grab
-    HyprlandFocusGrab {
-        windows: [root]
-        active: root.visible
-        onCleared: WallpaperService.hide()
-    }
+}
 }

@@ -185,8 +185,6 @@ Singleton {
             { id: "intent:audio:down", kind: "intent", actionId: "volume_down", name: "Volume Down", subtitle: "Lower output volume by 5%", iconGlyph: "", aliases: ["volume down", "decrease volume", "quieter", "bajar volumen", "sound down"] },
             { id: "intent:brightness:up", kind: "intent", actionId: "brightness_up", name: "Brightness Up", subtitle: "Increase screen brightness by 5%", iconGlyph: "󰃠", aliases: ["brightness up", "increase brightness", "brighter", "subir brillo"] },
             { id: "intent:brightness:down", kind: "intent", actionId: "brightness_down", name: "Brightness Down", subtitle: "Lower screen brightness by 5%", iconGlyph: "󰃟", aliases: ["brightness down", "decrease brightness", "dimmer", "bajar brillo"] },
-            { id: "intent:dnd:on", kind: "intent", actionId: "dnd_on", name: "Turn DND On", subtitle: NotificationService.dndEnabled ? "Do Not Disturb is already enabled" : "Silence notification popups", iconGlyph: "󰂛", aliases: ["dnd on", "do not disturb on", "enable dnd", "silence notifications", "activar no molestar"] },
-            { id: "intent:dnd:off", kind: "intent", actionId: "dnd_off", name: "Turn DND Off", subtitle: NotificationService.dndEnabled ? "Allow notification popups again" : "Do Not Disturb is already disabled", iconGlyph: "󰂚", aliases: ["dnd off", "do not disturb off", "disable dnd", "notifications on", "desactivar no molestar"] },
             { id: "intent:nightlight:on", kind: "intent", actionId: "night_light_on", name: "Night Light On", subtitle: BrightnessService.nightLightEnabled ? "Night light is already enabled" : "Warm the display tone", iconGlyph: "󰖔", aliases: ["night light on", "enable night light", "warm screen", "activar luz nocturna"] },
             { id: "intent:nightlight:off", kind: "intent", actionId: "night_light_off", name: "Night Light Off", subtitle: BrightnessService.nightLightEnabled ? "Restore cooler display tone" : "Night light is already disabled", iconGlyph: "󰖨", aliases: ["night light off", "disable night light", "cool screen", "desactivar luz nocturna"] },
             { id: "intent:wallpaper", kind: "intent", actionId: "wallpaper", name: "Open Wallpapers", subtitle: "Browse and switch wallpapers", iconGlyph: "󰸉", aliases: ["wallpaper", "wallpapers", "background", "fondo", "open wallpaper"] },
@@ -437,7 +435,8 @@ Singleton {
     }
 
     function show() {
-        rebuildAppCaches();
+        if (root._allEntries.length === 0)
+            rebuildAppCaches();
         _refreshToken++;
         query = "";
         selectedIndex = 0;
@@ -557,16 +556,6 @@ Singleton {
         case "brightness_down":
             BrightnessService.decreaseBrightness();
             OsdService.showBrightness(BrightnessService.brightness);
-            break;
-        case "dnd_on":
-            if (!NotificationService.dndEnabled)
-                NotificationService.enableDndFor(-1);
-            OsdService.showMessage("󰂛", NotificationService.dndEnabled ? "Do Not Disturb already on" : "Do Not Disturb enabled");
-            break;
-        case "dnd_off":
-            if (NotificationService.dndEnabled)
-                NotificationService.disableDnd();
-            OsdService.showMessage("󰂚", NotificationService.dndEnabled ? "Do Not Disturb disabled" : "Do Not Disturb already off");
             break;
         case "night_light_on":
             if (!BrightnessService.nightLightEnabled)

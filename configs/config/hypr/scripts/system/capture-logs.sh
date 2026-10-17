@@ -1,13 +1,16 @@
-#!/bin/bash
-# Script para capturar logs de Hyprland automáticamente
+#!/usr/bin/env bash
+# HyprGlass - Hyprland Log Capture Script
 
-LOGS_DIR="$HOME/.local/share/hyprland/logs"
+set -euo pipefail
+
+LOGS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hypr/logs"
 mkdir -p "$LOGS_DIR"
 
-# Crear archivo de log con timestamp
 LOG_FILE="$LOGS_DIR/hyprland-$(date +%Y-%m-%d_%H-%M-%S).log"
 
-# Ejecutar Hyprland y capturar output
-Hyprland > "$LOG_FILE" 2>&1
-
-echo "Logs guardados en: $LOG_FILE"
+if command -v Hyprland >/dev/null 2>&1; then
+    exec Hyprland > "$LOG_FILE" 2>&1
+else
+    echo "[ERROR] Hyprland binary not found in PATH." >&2
+    exit 1
+fi

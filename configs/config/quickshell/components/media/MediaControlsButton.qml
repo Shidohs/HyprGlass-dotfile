@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import qs.components
 import qs.config
 import qs.services
@@ -29,9 +28,11 @@ RowLayout {
             color: playButton.hovered ? Config.textColor : Config.textColor
         }
 
-        ToolTip.visible: playButton.hovered
-        ToolTip.text: MprisService.isPlaying ? "Pause" : "Play"
-        ToolTip.delay: 500
+        QsToolTip {
+            shown: playButton.hovered
+            text: MprisService.isPlaying ? "Pause" : "Play"
+            delay: 500
+        }
     }
 
     // Previous button
@@ -52,9 +53,11 @@ RowLayout {
             color: Config.textColor
         }
 
-        ToolTip.visible: prevButton.hovered
-        ToolTip.text: "Previous"
-        ToolTip.delay: 500
+        QsToolTip {
+            shown: prevButton.hovered
+            text: "Previous"
+            delay: 500
+        }
     }
 
     // Next button
@@ -75,8 +78,10 @@ RowLayout {
             color: Config.textColor
         }
 
-        ToolTip.visible: nextButton.hovered
-        ToolTip.text: "Next"
-        ToolTip.delay: 500
+        QsToolTip {
+            shown: nextButton.hovered
+            text: "Next"
+            delay: 500
+        }
     }
 }

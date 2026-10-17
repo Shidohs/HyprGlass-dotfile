@@ -22,6 +22,22 @@ Singleton {
     readonly property bool networkUiActive: WindowManagerService.activeModules["QuickSettings"] === true
     readonly property string ethernetIcon: "󰈀"
     readonly property bool scanning: rescanProc.running
+    property bool isToggling: false
+    readonly property string iconSource: {
+        const activeNetwork = accessPoints.find(ap => ap.active === true);
+        if (activeNetwork) {
+            const signal = activeNetwork.signal;
+            if (signal > 80) return "network-wireless-signal-excellent-symbolic";
+            if (signal > 60) return "network-wireless-signal-good-symbolic";
+            if (signal > 40) return "network-wireless-signal-ok-symbolic";
+            if (signal > 20) return "network-wireless-signal-weak-symbolic";
+            return "network-wireless-signal-none-symbolic";
+        }
+        if (ethernetConnected) return "network-wired-symbolic";
+        if (!wifiEnabled) return "network-wireless-offline-symbolic";
+        return "network-wireless-no-route-symbolic";
+    }
+
     readonly property string systemIcon: {
         const activeNetwork = accessPoints.find(ap => ap.active === true);
         if (activeNetwork)
@@ -77,6 +93,32 @@ Singleton {
         return "󰤫";
     }
 
+    function _runProcess(proc) {
+        if (proc && !proc.running)
+            proc.running = true;
+    }
+
+    function refreshNetworkState(forceDetailed) {
+        const detailed = forceDetailed === true;
+        const shouldRefreshInterfaces = detailed || root.refreshCycle % 5 === 0 || root.wifiInterface === "" || root.ethernetInterface === "";
+        const shouldRefreshWifiLists = detailed
+            || root.networkUiActive
+            || root.scanning
+            || root.connectingSsid !== ""
+            || (root.wifiEnabled && root.wifiAvailable && (root.refreshCycle % 5 === 0 || root.accessPoints.length === 0));
+
+        if (shouldRefreshInterfaces)
+            root._runProcess(findInterfaceProc);
+
+        root._runProcess(statusProc);
+        root._runProcess(getEthernetProc);
+
+        if (shouldRefreshWifiLists) {
+            root._runProcess(getSavedProc);
+            root._runProcess(getNetworksProc);
+        }
+    }
+
     // Status text
     readonly property string statusText: {
         const activeNetwork = accessPoints.find(ap => ap.active === true);
@@ -102,9 +144,16 @@ Singleton {
     readonly property string ethernetStatusText: ethernetConnected ? (ethernetConnection || "Conectado") : "Desconectado"
 
     function toggleWifi() {
-        if (toggleWifiProc.running)
+        if (root.isToggling || toggleWifiProc.running)
             return;
-        const cmd = wifiEnabled ? "off" : "on";
+            
+        root.isToggling = true;
+        const targetState = !root.wifiEnabled;
+        
+        // Optimistic update
+        root.wifiEnabled = targetState;
+        
+        const cmd = targetState ? "on" : "off";
         toggleWifiProc.command = ["nmcli", "radio", "wifi", cmd];
         toggleWifiProc.running = true;
     }
@@ -180,10 +229,7 @@ Singleton {
 
             // Reset state and update lists
             root.connectingSsid = "";
-            findInterfaceProc.running = true;
-            statusProc.running = true;
-            getSavedProc.running = true;
-            getNetworksProc.running = true;
+            root.refreshNetworkState(true);
         }
     }
 
@@ -192,9 +238,10 @@ Singleton {
         id: findInterfaceProc
         command: ["nmcli", "-g", "DEVICE,TYPE", "device"]
         running: false
-        stdout: SplitParser {
-            onRead: data => {
-                const lines = data.trim().split("\n");
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const trimmed = text.trim();
+                const lines = trimmed.length > 0 ? trimmed.split("\n") : [];
                 root.wifiInterface = "";
                 root.ethernetInterface = "";
                 lines.forEach(line => {
@@ -216,8 +263,11 @@ Singleton {
         running: false
         stdout: SplitParser {
             onRead: data => {
-                root.wifiEnabled = (data.trim() === "enabled");
-                if (!root.wifiEnabled)
+                const newState = (data.trim() === "enabled");
+                if (root.wifiEnabled !== newState && !root.isToggling) {
+                    root.wifiEnabled = newState;
+                }
+                if (!newState)
                     root.accessPoints = [];
             }
         }
@@ -226,61 +276,57 @@ Singleton {
     // Toggle On/Off
     Process {
         id: toggleWifiProc
-        onExited: statusProc.running = true
+        onExited: {
+            root.isToggling = false;
+            root.refreshNetworkState(true);
+        }
     }
 
     // Rescan (Refresh)
     Process {
         id: rescanProc
         command: ["nmcli", "dev", "wifi", "list", "--rescan", "yes"]
-        onExited: getNetworksProc.running = true
+        onExited: root.refreshNetworkState(true)
     }
 
     // Disconnect
     Process {
         id: disconnectProc
-        onExited: getNetworksProc.running = true
+        onExited: root.refreshNetworkState(true)
     }
 
     // Forget Network
     Process {
         id: forgetProc
         // The command is defined dynamically before running
-        onExited: {
-            getSavedProc.running = true;
-            getNetworksProc.running = true;
+        onExited: root.refreshNetworkState(true)
+    }
+
+    // ── NATIVE EVENT SUBSCRIPTION (NO POLLING) ──
+    Process {
+        id: nmMonitorProc
+        command: ["nmcli", "monitor"]
+        running: true
+        
+        stdout: SplitParser {
+            onRead: data => {
+                if (data && data.trim() !== "") {
+                    refreshDebounce.restart();
+                }
+            }
         }
     }
 
-    // Automatic Update Timer (only when needed)
     Timer {
-        interval: root.networkUiActive ? 15000 : 60000
-        running: true
-        repeat: true
+        id: refreshDebounce
+        interval: 1000
         onTriggered: {
             root.refreshCycle += 1;
-            const detailedRefresh = root.networkUiActive || root.scanning || root.connectingSsid !== "";
-            if (detailedRefresh) {
-                findInterfaceProc.running = true;
-                getSavedProc.running = true;
-                getNetworksProc.running = true;
-            } else if (root.refreshCycle % 5 === 0) {
-                findInterfaceProc.running = true;
-                getSavedProc.running = true;
-                getNetworksProc.running = true;
-            }
-            statusProc.running = true;
-            getEthernetProc.running = true;
+            root.refreshNetworkState(false);
         }
     }
 
-    Component.onCompleted: {
-        findInterfaceProc.running = true;
-        statusProc.running = true;
-        getSavedProc.running = true;
-        getNetworksProc.running = true;
-        getEthernetProc.running = true;
-    }
+    Component.onCompleted: root.refreshNetworkState(true)
 
     // List Saved Networks
     Process {
@@ -371,7 +417,7 @@ Singleton {
     Process {
         id: getEthernetProc
         command: ["nmcli", "-t", "-e", "yes", "-f", "DEVICE,TYPE,STATE,CONNECTION", "dev"]
-        running: true
+        running: false
         stdout: StdioCollector {
             onStreamFinished: {
                 const trimmed = text.trim();

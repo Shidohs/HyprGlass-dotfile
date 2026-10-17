@@ -10,7 +10,7 @@ BarButton {
     active: calendarLoader.active && calendarLoader.item && calendarLoader.item.visible
     contentItem: clockText
     onClicked: {
-        pulseAnimation.start()
+        pulseAnimation.restart()
         if (calendarLoader.active && calendarLoader.item) {
             calendarLoader.item.closeWindow();
         } else {

@@ -11,7 +11,7 @@ BarButton {
     active: QuickSettingsService.visible
     contentItem: iconsLayout
     onClicked: {
-        pulseAnimation.start()
+        pulseAnimation.restart()
         QuickSettingsService.toggle("dashboard")
     }
 

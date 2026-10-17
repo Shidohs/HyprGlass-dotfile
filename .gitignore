@@ -17,3 +17,9 @@ configs/config/quickshell/data/state/*.json
 configs/config/quickshell/data/private/*.json
 configs/config/quickshell/**/__pycache__/
 configs/config/quickshell/**/*.pyc
+
+# Launcher build artifacts
+launcher/target/
+
+# Local agent caches
+.goose/
