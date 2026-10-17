@@ -5,7 +5,7 @@
 -- Rofi (Launcher & Dialogs)
 hl.layer_rule({ match = { namespace = "rofi" }, blur = true, ignore_alpha = 0.0, dim_around = true, no_anim = true })
 -- Glass Launcher
-hl.layer_rule({ match = { namespace = "glass-launcher" }, blur = true, ignore_alpha = 0.0, dim_around = true, no_anim = true })
+hl.layer_rule({ match = { namespace = "glass-launcher" }, blur = true, ignore_alpha = 0.2 })
 
 -- SwayNC Notification Window
 hl.layer_rule({ match = { namespace = "swaync-notification-window" }, blur = true, ignore_alpha = 0.3, animation = "slide right" })

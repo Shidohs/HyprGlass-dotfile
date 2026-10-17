@@ -200,11 +200,12 @@ impl ThemeManager {
  * ========================================================== */
 
 window, window.launcher-window {{
-    background-color: {bg_glass};
+    background-color: transparent;
+    background: transparent;
 }}
 
 .main-wrapper {{
-    background-color: transparent;
+    background-color: {bg_glass};
     padding: 56px 32px 16px 32px;
 }}
 
